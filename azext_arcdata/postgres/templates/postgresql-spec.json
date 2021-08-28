@@ -1,0 +1,44 @@
+{
+    "apiVersion": "arcdata.microsoft.com/v1beta1",
+    "kind": "PostgreSql",
+    "metadata": {
+      "name": "pg1"
+    },
+    "spec": {
+      "engine": {
+        "version": 12
+      },
+      "scheduling": {
+        "default" : {
+          "resources" : {
+            "requests" : {
+              "memory": "256Mi"
+            }
+          }
+        }
+      },
+      "storage": {
+        "data": {
+          "volumes": [
+            {
+              "size": "5Gi"
+            }
+          ]
+        },
+        "logs": {
+          "volumes": [
+            {
+              "size": "5Gi"
+            }
+          ]
+        },
+        "backups": {
+          "volumes": [
+            {
+              "size": "5Gi"
+            }
+          ]
+        }
+      }
+    }
+  }

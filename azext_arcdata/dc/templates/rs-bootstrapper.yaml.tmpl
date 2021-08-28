@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: bootstrapper
+  labels:
+    app: bootstrapper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bootstrapper
+  template:
+    metadata:
+      labels:
+        app: bootstrapper
+    spec:
+      serviceAccountName: sa-arc-bootstrapper
+      securityContext:
+        fsGroup: 1000700001
+      imagePullSecrets:
+      - name: {{ model.imagePullSecret }}
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+      - name: bootstrapper
+        image: {{ model.bootstrapper }}
+        imagePullPolicy: {{ model.imagePullPolicy }}
+        resources:
+          limits:
+            cpu: 200m
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+        securityContext:
+          runAsUser: 1000700001
+        env:
+        - name: ACCEPT_EULA
+          value: Y

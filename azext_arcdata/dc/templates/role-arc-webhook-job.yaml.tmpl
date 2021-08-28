@@ -1,0 +1,20 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: role-arc-webhook-job
+  namespace: {{ model.namespace }}
+rules:
+- apiGroups: ["*"]
+  resources: ["secrets"]
+  verbs: ["create"]
+- apiGroups: ["*"]
+  resources: ["secrets"]
+  resourceNames: ["arc-webhook-secret"]
+  verbs: ["delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  resourceNames: ["arc-webhook-job"]
+  verbs: ["delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create"]

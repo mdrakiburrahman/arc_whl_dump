@@ -1,0 +1,40 @@
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: "test-webhook"
+webhooks:
+- name: "controller-svc.test.svc"
+  # Match requests to any api version/endpoint
+  matchPolicy: Equivalent
+  failurePolicy: Ignore
+  namespaceSelector:
+    matchExpressions:
+    - key: webhook
+      operator: In
+      values: ["test"]
+  reinvocationPolicy: IfNeeded
+  rules:
+  # For the most part, * matches everything
+  - apiGroups:   ["*"]
+    apiVersions: ["*"]
+    # Match CREATE, UPDATE operations to validate spec.
+    operations:
+    - CREATE
+    - UPDATE
+    # */* matches all resources and sub-resources. * Only matches all resources
+    # TODO Need to discuss about datacontroller resource validation.
+    resources:   ["*/*"]
+    scope:       "Namespaced"
+  clientConfig:
+    # Configures the hook to hit the existing controller service
+    service:
+      namespace: "test"
+      name: "controller-svc"
+      # We must configure this to route the requests to the webhook
+      path: ""
+      port: 443
+    caBundle: ""
+  admissionReviewVersions: ["v1", "v1beta1"]
+  # Important to allow this hook to be hit on a dry run (a large part of why we're using them) 
+  sideEffects: NoneOnDryRun
+  timeoutSeconds: 5

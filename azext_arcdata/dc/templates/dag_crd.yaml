@@ -1,0 +1,35 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: dags.sql.arcdata.microsoft.com
+spec:
+  group: sql.arcdata.microsoft.com
+  versions:
+  - name: v1beta1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - jsonPath: .status.state
+      name: Status
+      type: string
+    - jsonPath: .status.results
+      name: Results
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+  conversion:
+    strategy: None
+  names:
+    kind: Dag
+    singular: dag
+    plural: dags
+    shortNames:
+    - dag
+  scope: Namespaced

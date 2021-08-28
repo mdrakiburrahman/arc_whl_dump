@@ -1,0 +1,12 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+   name: crb-arc-webhook-job
+subjects:
+ - kind: ServiceAccount
+   name: sa-arc-webhook-job
+   namespace: {{ model.namespace }}
+roleRef:
+   kind: ClusterRole
+   name: cr-arc-webhook-job
+   apiGroup: rbac.authorization.k8s.io
