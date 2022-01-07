@@ -4,6 +4,8 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from os import stat
+from typing import Tuple
 from azext_arcdata.kubernetes_sdk.models.custom_resource import CustomResource
 from azext_arcdata.kubernetes_sdk.errors.K8sAdmissionReviewError import (
     K8sAdmissionReviewError,
@@ -12,13 +14,36 @@ from azext_arcdata.kubernetes_sdk.models.custom_resource_definition import (
     CustomResourceDefinition,
 )
 from azext_arcdata.kubernetes_sdk.HttpCodes import http_status_codes
+from azext_arcdata.core.util import (
+    check_and_set_kubectl_context,
+    retry,
+    retry_method,
+)
+from azext_arcdata.core.constants import (
+    ARC_GROUP,
+    DATA_CONTROLLER_CRD_VERSION,
+    DATA_CONTROLLER_PLURAL,
+    USE_K8S_EXCEPTION_TEXT,
+)
+from azext_arcdata.kubernetes_sdk.models.data_controller_custom_resource import (
+    DataControllerCustomResource,
+)
+
 from kubernetes import client as k8sClient
 from kubernetes.client.rest import ApiException as K8sApiException
+
 from knack.log import get_logger
 from functools import wraps
+from pydash.utilities import memoize
+from urllib3.exceptions import NewConnectionError, MaxRetryError
 
 import json
+import pydash as _
 
+CONNECTION_RETRY_ATTEMPTS = 12
+DELETE_CLUSTER_TIMEOUT_SECONDS = 300
+RETRY_INTERVAL = 5
+UPDATE_INTERVAL = (15 * 60) / RETRY_INTERVAL
 
 logger = get_logger(__name__)
 
@@ -635,6 +660,69 @@ class KubernetesClient(object):
 
     @staticmethod
     @catch_admission_responses
+    @retry_method(
+        retry_count=CONNECTION_RETRY_ATTEMPTS,
+        retry_delay=RETRY_INTERVAL,
+        retry_method_description="Merge data controller",
+        retry_on_exceptions=(NewConnectionError, MaxRetryError),
+    )
+    def merge_namespaced_custom_object(
+        body,
+        cr=None,
+        name=None,
+        namespace=None,
+        plural=None,
+        group=None,
+        version=None,
+    ):
+        """
+        Merges a kubernetes custom resource object with the supplied body.
+
+        >>> You can call this is one of 2 ways depending on which is most
+        convenient for your scenario:
+        >>> 1. Without an existing CR object, you may provide the body,
+        and all kw arguments
+        >>>    Example: merge_namespaced_custom_object(body,
+        plural="datacontrollers", name=name, namespace=namespace,
+        group=group, version=version)
+        >>> 2. If you have an existing CR object, you may provide the body
+        positional argument and plural=plural then pass the cr using the cr
+        param
+        >>>    Example: merge_namespaced_custom_object(body,
+        plural="datacontrollers", **cr)
+
+        :param body: the json document to be applied to the custom resource
+        :namespace: the namespace of the cr
+        :name: the name of the cr
+        :param plural: The plural name of the custom resource definition.
+        :param cr: Existing cr, if none is passed, the
+        :param group: The api group for the custom resource use "kubectl
+        api-resources" to see the appropriate group for a given resource type
+        :param version: The api version
+        :return:
+        """
+        if cr is not None:
+            name = cr.metadata.name
+            namespace = cr.metadata.name
+            group = cr.group
+            version = cr.version
+
+        try:
+            api = k8sClient.CustomObjectsApi()
+            return api.patch_namespaced_custom_object(
+                body=body,
+                name=name,
+                namespace=namespace,
+                group=group,
+                version=version,
+                plural=plural,
+            )
+
+        except Exception as e:
+            raise KubernetesError(e)
+
+    @staticmethod
+    @catch_admission_responses
     def replace_namespaced_custom_object(cr: CustomResource, plural: str):
         """
         Replaces a kubernetes custom resource object with the given crd and
@@ -833,7 +921,8 @@ class KubernetesClient(object):
                 plural = crd.plural
             elif not group or not version or not plural:
                 raise ValueError(
-                    "Please specify either a valid CRD or the group, version, and plural."
+                    "Please specify either a valid CRD or the group, version, "
+                    "and plural."
                 )
 
             return api.list_namespaced_custom_object(
@@ -846,6 +935,110 @@ class KubernetesClient(object):
         except K8sApiException as e:
             logger.debug(e.body)
             raise e
+
+    @staticmethod
+    def resolve_k8s_client() -> k8sClient:
+        check_and_set_kubectl_context()
+
+        return k8sClient
+
+    @staticmethod
+    def assert_use_k8s(use_k8s=None):
+        if not use_k8s:
+            raise ValueError(USE_K8S_EXCEPTION_TEXT)
+
+    def patch_property(path: str, value, patch_array=None, operation="replace"):
+        """
+        adds a new replace patch operation to the array, or creates a new
+        array with jsonPatch command
+        """
+        if patch_array is None:
+            patch_array = []
+
+        patch_array.append({"op": operation, "path": path, "value": value})
+        return patch_array
+
+    @staticmethod
+    def get_arc_datacontroller(
+        namespace: str, use_k8s: bool = True
+    ) -> Tuple[CustomResource, str]:
+
+        """
+        Return the data controller custom resource for the given namespace.
+        """
+        try:
+            # -- Check Kubectl Context --
+            client = KubernetesClient.resolve_k8s_client().CustomObjectsApi()
+            namespace = namespace
+
+            response = retry(
+                lambda: client.list_namespaced_custom_object(
+                    namespace=namespace,
+                    group=ARC_GROUP,
+                    version=KubernetesClient.get_crd_version(
+                        "datacontrollers.arcdata.microsoft.com"
+                    ),
+                    plural=DATA_CONTROLLER_PLURAL,
+                ),
+                retry_count=CONNECTION_RETRY_ATTEMPTS,
+                retry_delay=RETRY_INTERVAL,
+                retry_method="get data controller",
+                retry_on_exceptions=(NewConnectionError, MaxRetryError),
+            )
+
+            dcs = response.get("items")
+
+            dcs = _.find(
+                dcs,
+                lambda d: _.get(d, ["status", "state"], None) != ""
+                and _.get(d, ["status", "state"]).lower() != "duplicateerror",
+            )
+
+            if not dcs:
+                raise Exception(
+                    "No data controller exists in Kubernetes namespace `{"
+                    "}`.".format(namespace)
+                )
+            else:
+                cr = CustomResource.decode(DataControllerCustomResource, dcs)
+                return (cr, dcs)
+
+        except Exception:
+            raise
+
+    @memoize
+    def _get_crd():
+        client = KubernetesClient.resolve_k8s_client().ApiextensionsV1Api()
+        crds = client.list_custom_resource_definition()
+        return crds
+
+    @staticmethod
+    def get_crd(
+        crd_name="datacontrollers.arcdata.microsoft.com", reset_cache=False
+    ):
+
+        if reset_cache is True:
+            KubernetesClient._get_crd.cache = {}
+
+        crds = KubernetesClient._get_crd().items
+        crd = _.head(_.filter_(crds, lambda crd: crd.metadata.name == crd_name))
+        return crd
+
+    @staticmethod
+    def get_crd_version(
+        crd_name="datacontrollers.arcdata.microsoft.com", reset_cache=False
+    ):
+        try:
+            crd = KubernetesClient.get_crd(crd_name, reset_cache)
+            version = _.head(
+                _.filter_(crd.spec.versions, lambda v: v.storage is True)
+            )
+            return version.name
+        except Exception as ex:
+            raise Exception(
+                "Unable to resolve Custom Resource Definition api_version for "
+                "{0}.".format(crd_name)
+            ) from ex
 
 
 # ---------------------------------------------------------------------------- #

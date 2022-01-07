@@ -6,13 +6,17 @@
 
 # import azext_arcdata.core.deploy as util
 from knack.cli import CLIError
-from azext_arcdata.kubernetes_sdk.client import K8sApiException
+from azext_arcdata.kubernetes_sdk.client import K8sApiException, KubernetesClient
 from azext_arcdata.core.constants import DIRECT
+
 from azext_arcdata.core.constants import (
     ARC_GROUP,
     DATA_CONTROLLER_CRD_VERSION,
     DATA_CONTROLLER_PLURAL,
 )
+
+from azext_arcdata.kubernetes_sdk.dc.constants import DATA_CONTROLLER_CRD_NAME
+
 from collections import OrderedDict
 from urllib3.exceptions import NewConnectionError, MaxRetryError
 from azext_arcdata.core.util import retry
@@ -120,7 +124,7 @@ def is_valid_connectivity_mode(client):
         lambda: client.apis.kubernetes.list_namespaced_custom_object(
             namespace,
             group=ARC_GROUP,
-            version=DATA_CONTROLLER_CRD_VERSION,
+            version=KubernetesClient.get_crd_version(DATA_CONTROLLER_CRD_NAME),
             plural=DATA_CONTROLLER_PLURAL,
         ),
         retry_count=CONNECTION_RETRY_ATTEMPTS,

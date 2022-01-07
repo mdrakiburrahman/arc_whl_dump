@@ -4,24 +4,28 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-
+from azext_arcdata.dc.azure.constants import (
+    INSTANCE_TYPE_DATA_CONTROLLER,
+    RESOURCE_PROVIDER_NAMESPACE,
+)
+from azure.cli.core.commands.parameters import get_resource_name_completion_list
 from azext_arcdata.core.util import DeploymentConfigUtil
-from azext_arcdata.dc.constants import CONFIG_DIR
-from azext_arcdata.core.constants import USE_K8S_TEXT
-from azext_arcdata.dc.common_util import get_valid_dc_infrastructures
+from azext_arcdata.core.constants import (
+    USE_K8S_TEXT,
+    CLI_ARG_GROUP_DIRECT_TEXT,
+    CLI_ARG_GROUP_INDIRECT_TEXT,
+    CLI_ARG_RESOURCE_GROUP_TEXT,
+)
+from azext_arcdata.kubernetes_sdk.dc.constants import CONFIG_DIR
+from azext_arcdata.kubernetes_sdk.dc.common_util import (
+    get_valid_dc_infrastructures,
+)
 
 
 def load_arguments(self, _):
     from knack.arguments import ArgumentsContext
 
     with ArgumentsContext(self, "arcdata dc create") as arg_context:
-        arg_context.argument(
-            "namespace",
-            options_list=["--k8s-namespace", "-k"],
-            help="The Kubernetes namespace to deploy the data controller into. "
-            "If it exists already it will be used. If it does not exist, "
-            "an attempt will be made to create it first.",
-        )
         arg_context.argument(
             "name",
             options_list=["--name", "-n"],
@@ -36,8 +40,7 @@ def load_arguments(self, _):
         arg_context.argument(
             "resource_group",
             options_list=["--resource-group", "-g"],
-            help="The Azure resource group in which the data controller "
-            "resource should be added.",
+            help=CLI_ARG_RESOURCE_GROUP_TEXT,
         )
         arg_context.argument(
             "connectivity_mode",
@@ -60,6 +63,30 @@ def load_arguments(self, _):
             "options. One of the following: {0}.".format(
                 _get_release_profiles()
             ),
+        ),
+        arg_context.argument(
+            "logs_ui_public_key_file",
+            options_list=["--logs-ui-public-key-file"],
+            help="Path to the file containing a PEM formatted certificate "
+            "to be used for the Logs UI dashboard endpoint.",
+        ),
+        arg_context.argument(
+            "logs_ui_private_key_file",
+            options_list=["--logs-ui-private-key-file"],
+            help="Path to the file containing a PEM formatted certificate "
+            "private key to be used for the Logs UI dashboard endpoint.",
+        ),
+        arg_context.argument(
+            "metrics_ui_public_key_file",
+            options_list=["--metrics-ui-public-key-file"],
+            help="Path to the file containing a PEM formatted certificate "
+            "to be used for the Metrics UI dashboard endpoint.",
+        ),
+        arg_context.argument(
+            "metrics_ui_private_key_file",
+            options_list=["--metrics-ui-private-key-file"],
+            help="Path to the file containing a PEM formatted certificate "
+            "private key to be used for the Metrics UI dashboard endpoint.",
         )
         arg_context.argument(
             "storage_class",
@@ -77,13 +104,15 @@ def load_arguments(self, _):
         )
         arg_context.argument(
             "labels",
-            options_list=("--labels"),
-            help="Comma-separated list of labels to apply to all data controller resources.",
+            options_list=["--labels"],
+            help="Comma-separated list of labels to apply to all data "
+            "controller resources.",
         )
         arg_context.argument(
             "annotations",
-            options_list=("--annotations"),
-            help="Comma-separated list of annotations to apply all data controller resources.",
+            options_list=["--annotations"],
+            help="Comma-separated list of annotations to apply all data "
+            "controller resources.",
         )
         arg_context.argument(
             "service_annotations",
@@ -99,59 +128,143 @@ def load_arguments(self, _):
         )
         arg_context.argument(
             "storage_annotations",
-            options_list=("--storage-annotations"),
-            help="Comma-separated list of annotations to apply to all PVCs created by the data controller.",
+            options_list=["--storage-annotations"],
+            help="Comma-separated list of annotations to apply to all PVCs "
+            "created by the data controller.",
         )
         arg_context.argument(
             "storage_labels",
-            options_list=("--storage-labels"),
-            help="Comma-separated list of labels to apply to all PVCs created by the data controller.",
+            options_list=["--storage-labels"],
+            help="Comma-separated list of labels to apply to all PVCs created "
+            "by the data controller.",
+        )
+        # -- indirect --
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="[Required] The Kubernetes namespace to deploy the data "
+            "controller into. If it exists already it will be used. If it "
+            "does not exist, an attempt will be made to create it first.",
         )
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             action="store_true",
             help="Create data controller using local Kubernetes APIs.",
+        )
+        # -- direct --
+        arg_context.argument(
+            "custom_location",
+            options_list=["--custom-location"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help="[Required] The name of the custom location.",
+        )
+        arg_context.argument(
+            "auto_upload_metrics",
+            options_list=["--auto-upload-metrics"],
+            choices=["true", "false"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help="Enable auto upload metrics.",
+        )
+        arg_context.argument(
+            "auto_upload_logs",
+            options_list=["--auto-upload-logs"],
+            choices=["true", "false"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help="Enable auto upload logs.",
+        )
+
+    with ArgumentsContext(self, "arcdata dc update") as arg_context:
+        arg_context.argument(
+            "name",
+            options_list=["--name", "-n"],
+            help="Data controller name.",
+            completer=get_resource_name_completion_list(
+                f"{RESOURCE_PROVIDER_NAMESPACE}/{INSTANCE_TYPE_DATA_CONTROLLER}"
+            ),
+        )
+        arg_context.argument(
+            "auto_upload_logs",
+            options_list=["--auto-upload-logs"],
+            help="Enable auto upload logs.",
+            choices=["true", "false"],
+        )
+        arg_context.argument(
+            "auto_upload_metrics",
+            options_list=["--auto-upload-metrics"],
+            help="Enable auto upload metrics.",
+            choices=["true", "false"],
         )
 
     with ArgumentsContext(self, "arcdata dc delete") as arg_context:
         arg_context.argument(
             "name", options_list=["--name", "-n"], help="Data controller name."
         )
-
-        arg_context.argument(
-            "namespace",
-            options_list=["--k8s-namespace", "-k"],
-            help="The Kubernetes namespace in which the data controller "
-            "exists.",
-        )
-
         arg_context.argument(
             "yes",
             options_list=["--yes", "-y"],
             action="store_true",
             help="Delete data controller without confirmation prompt.",
         )
-
         arg_context.argument(
             "force",
             options_list=["--force", "-f"],
             action="store_true",
             help="Force delete data controller and all of its data services.",
         )
-
-    with ArgumentsContext(self, "arcdata dc status show") as arg_context:
+        # -- indirect --
         arg_context.argument(
             "namespace",
             options_list=["--k8s-namespace", "-k"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="[Required] The Kubernetes namespace in which the data "
+            "controller "
+            "exists.",
+        )
+        arg_context.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            action="store_true",
+            help="Create data controller using local Kubernetes APIs.",
+        )
+        # -- direct --
+        arg_context.argument(
+            "resource_group",
+            options_list=["--resource-group", "-g"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help=CLI_ARG_RESOURCE_GROUP_TEXT,
+        )
+
+    with ArgumentsContext(self, "arcdata dc status show") as arg_context:
+        # -- direct --
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="The Kubernetes namespace in which the data controller "
             "exists.",
         )
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             action="store_true",
-            help=USE_K8S_TEXT,
+            help="Create data controller using local Kubernetes APIs.",
+        )
+        # -- indirect --
+        arg_context.argument(
+            "name",
+            options_list=["--name", "-n"],
+            help="[Required] The name for the data controller.",
+        )
+        arg_context.argument(
+            "resource_group",
+            options_list=["--resource-group", "-g"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help=CLI_ARG_RESOURCE_GROUP_TEXT,
         )
 
     with ArgumentsContext(self, "arcdata dc endpoint list") as arg_context:
@@ -211,7 +324,6 @@ def load_arguments(self, _):
                 list(DeploymentConfigUtil.get_config_map(CONFIG_DIR).keys())
             ),
         )
-
         arg_context.argument(
             "path",
             options_list=[
@@ -225,7 +337,6 @@ def load_arguments(self, _):
             help="File path of where you would like the config profile placed, "
             "defaults to <cwd>/custom.",
         )
-
         arg_context.argument(
             "force",
             options_list=["--force", "-f"],
@@ -355,7 +466,6 @@ def load_arguments(self, _):
             options_list=["--k8s-namespace", "-k"],
             help="Kubernetes namespace of the data controller.",
         )
-
         arg_context.argument(
             "target_folder",
             options_list=["--target-folder", "-d"],
@@ -364,7 +474,6 @@ def load_arguments(self, _):
             "multiple times. If specified multiple times, last one will "
             "be used",
         )
-
         arg_context.argument(
             "pod",
             options_list=["--pod"],
@@ -373,7 +482,6 @@ def load_arguments(self, _):
             "multiple times. If specified multiple times, last one will "
             "be used",
         )
-
         arg_context.argument(
             "container",
             options_list=["--container", "-c"],
@@ -382,7 +490,6 @@ def load_arguments(self, _):
             "be specified multiple times. If specified multiple times, "
             "last one will be used",
         )
-
         arg_context.argument(
             "resource_kind",
             options_list=["--resource-kind"],
@@ -391,7 +498,6 @@ def load_arguments(self, _):
             "last one will be used. If specified, --resource-name should "
             "also be specified to identify the resource.",
         )
-
         arg_context.argument(
             "resource_name",
             options_list=["--resource-name"],
@@ -400,7 +506,6 @@ def load_arguments(self, _):
             "last one will be used. If specified, --resource-kind should "
             "also be specified to identify the resource.",
         )
-
         arg_context.argument(
             "timeout",
             options_list=["--timeout", "-t"],
@@ -409,7 +514,6 @@ def load_arguments(self, _):
             help="The number of seconds to wait for the command to complete. "
             "The default value is 0 which is unlimited",
         )
-
         arg_context.argument(
             "skip_compress",
             options_list=["--skip-compress"],
@@ -418,7 +522,6 @@ def load_arguments(self, _):
             help="Whether or not to skip compressing the result folder. "
             "The default value is False which compresses the result folder.",
         )
-
         arg_context.argument(
             "exclude_dumps",
             options_list=["--exclude-dumps"],
@@ -439,6 +542,7 @@ def load_arguments(self, _):
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
+            # deprecate_info=arg_context.deprecate(hide=True),
             action="store_true",
             help=USE_K8S_TEXT,
         )
@@ -468,6 +572,7 @@ def load_arguments(self, _):
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
+            # deprecate_info=arg_context.deprecate(hide=True),
             action="store_true",
             help=USE_K8S_TEXT,
         )
@@ -500,6 +605,7 @@ def load_arguments(self, _):
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
+            # deprecate_info=arg_context.deprecate(hide=True),
             action="store_true",
             help=USE_K8S_TEXT,
         )
@@ -529,6 +635,70 @@ def load_arguments(self, _):
             "kind",
             options_list=["--kind", "-k"],
             help="The kind of the Arc custom resource you would like to list.",
+        )
+
+    with ArgumentsContext(self, "arcdata dc upgrade") as arg_context:
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            help="The Kubernetes namespace in which the data controller "
+            "exists.",
+        )
+
+        arg_context.argument(
+            "target",
+            options_list=["--desired-version", "--target", "-t", "-v"],
+            help="The desired version tag to which the data controller will "
+            "be upgraded, or empty to use the latest.",
+        )
+
+        arg_context.argument(
+            "dry_run",
+            options_list=["--dry-run", "-d"],
+            action="store_true",
+            help="Indicates which instance would be upgraded but does not "
+            "actually upgrade the instances.",
+        )
+
+        arg_context.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            action="store_true",
+            help="upgrade data controller using local Kubernetes APIs.",
+        )
+        arg_context.argument(
+            "nowait",
+            options_list=["--no-wait"],
+            action="store_true",
+            help="If given, the command will start the upgrade, but will not "
+            "wait for the entire upgrade to complete. Upgrade will "
+            "continue in the background.",
+        )
+        # -- direct --
+        arg_context.argument(
+            "name",
+            options_list=["--name", "-n"],
+            help="The name for the data controller.",
+        )
+
+        arg_context.argument(
+            "resource_group",
+            options_list=["--resource-group", "-g"],
+            help=CLI_ARG_RESOURCE_GROUP_TEXT,
+        )
+
+    with ArgumentsContext(self, "arcdata dc list-upgrades") as arg_context:
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            help="The Kubernetes namespace in which the data controller "
+            "exists.",
+        )
+        arg_context.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            action="store_true",
+            help="List available data controller versions using local Kubernetes APIs.",
         )
 
 

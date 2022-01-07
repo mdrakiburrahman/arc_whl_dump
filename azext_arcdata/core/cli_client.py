@@ -8,17 +8,13 @@
 Client for all CLI actions.
 """
 
-from azext_arcdata.kubernetes_sdk.client import KubernetesClient
-from azext_arcdata.core.controller import ControllerClient
+from abc import ABCMeta
+
 from azext_arcdata.core.output import OutputStream
-from azext_arcdata.core.prompt import prompt
-from azext_arcdata.core.util import is_windows, load_kube_config
-from kubernetes.config.config_exception import ConfigException
+from azext_arcdata.core.services import beget_service
 from azure.cli.core._profile import Profile
 from knack.cli import CLIError
 from knack.log import get_logger
-from knack.prompting import NoTTYException
-from abc import ABCMeta
 from six import add_metaclass
 
 __all__ = ["client", "CliClient"]
@@ -59,10 +55,6 @@ class BaseCliClient(object):
     def stderr(self):
         return OutputStream().stderr.write
 
-    @property
-    def namespace(self):
-        return self._namespace
-
     def __str__(self):
         """
         Returns the base string representation of attributes. Sub-class should
@@ -86,39 +78,71 @@ class CliClient(BaseCliClient):
     customization extend this class.
     """
 
-    def __init__(self, az_cli, namespace=None, check_namespace=True):
+    def __init__(self, az_cli, kwargs, check_namespace=False):
         super(CliClient, self).__init__()
 
         self._az_cli = az_cli
+        self._args = kwargs
         self._utils = None
         self._terminal = None
 
-        # -- exposed client APIS --
-        self._apis = type("", (object,), {
-            "kubernetes": KubernetesClient(),
-            "controller": ControllerClient()
-        })
+        logger.debug(self._args)
 
-        try:
-            logger.debug("Provided k8s-namespace = {0}".format(namespace))
-            logger.debug("Force namespace    = {0}".format(check_namespace))
+        if check_namespace is None:  # tmp for dc
+            self._az_cli.data["arcdata_command_args"] = self._args
+            service = beget_service(self.az_cli)
+            d = dict()
+            d[service.name] = service
+            self._services = type("", (object,), d)
+        else:
+            ###############################################################
+            # Only tmp until we move sqlmi/postgres over to this new model
+            ###############################################################
+            from azext_arcdata.core.prompt import prompt
+            from azext_arcdata.core.util import load_kube_config
+            from azext_arcdata.kubernetes_sdk.client import KubernetesClient
+            from knack.prompting import NoTTYException
+            from kubernetes.config.config_exception import ConfigException
 
-            if not namespace and check_namespace:
-                namespace = load_kube_config().get("namespace")
-                if not namespace:
-                    namespace = prompt("Kubernetes Namespace: ")
-            self._namespace = namespace
-            logger.debug(
-                "Using Kubernetes namespace = {0}".format(self.namespace)
-            )
-        except NoTTYException:
-            raise NoTTYException(
-                "You must have a tty to prompt "
-                "for Kubernetes namespace. Please provide a "
-                "--k8s-namespace argument instead."
-            )
-        except (ConfigException, Exception) as ex:
-            raise CLIError(ex)
+            self._namespace = None
+            if self._args.get("use_k8s"):
+                try:
+                    namespace = self._args.get("namespace")
+                    logger.debug(
+                        "Provided k8s-namespace = {0}".format(namespace)
+                    )
+                    logger.debug(
+                        "Force namespace    = {0}".format(check_namespace)
+                    )
+
+                    if not namespace and check_namespace:
+                        namespace = load_kube_config().get("namespace")
+                        if not namespace:
+                            namespace = prompt("Kubernetes Namespace: ")
+                    self._namespace = namespace
+                    logger.debug(
+                        "Using Kubernetes namespace = {0}".format(
+                            self.namespace
+                        )
+                    )
+                except NoTTYException:
+                    raise NoTTYException(
+                        "You must have a tty to prompt "
+                        "for Kubernetes namespace. Please provide a "
+                        "--k8s-namespace argument instead."
+                    )
+                except (ConfigException, Exception) as ex:
+                    raise CLIError(ex)
+
+                logger.debug(
+                    "Using Kubernetes namespace = {0}".format(namespace)
+                )
+
+                self._namespace = namespace
+                self._apis = type(
+                    "", (object,), {"kubernetes": KubernetesClient()}
+                )
+            ###############################################################
 
     @property
     def az_cli(self):
@@ -136,11 +160,61 @@ class CliClient(BaseCliClient):
         return Profile(cli_ctx=self.az_cli.local_context.cli_ctx)
 
     @property
+    def subscription(self):
+        """
+        Gets the Azure subscription.
+        """
+
+        # Gets the azure subscription by attempting to gather it from:
+        # 1. global argument [--subscription] if provided
+        # 2. Otherwise active subscription in profile if available
+        # 3. Otherwise `None`
+        subscription = self.az_cli.data.get("subscription_id")
+
+        if not subscription:
+            try:
+                subscription = self.profile.get_subscription_id()
+            except CLIError:
+                subscription = None
+        else:
+            try:
+                subscription = self.profile.get_subscription(
+                    subscription=subscription
+                ).get("id")
+            except CLIError:
+                logger.warning("To not see this warning, first login to Azure.")
+
+        return subscription
+
+    @property
+    def services(self):
+        return self._services
+
+    def args_to_command_value_object(self, kwargs=None):
+        """
+        Converts a `dict` of command argument name/values into a `Named Tuple`
+        representing "Command Value Object" pattern for arguments.
+
+        If no arguments are provided in `kwargs` then we use the original
+        superset of arguments provided from the command-line.
+
+        :return: The command's arguments as "Command Value Object",
+        """
+        from collections import namedtuple
+
+        args = kwargs or self._args
+
+        return namedtuple("CommandValueObject", " ".join(list(args.keys())))(
+            **args
+        )
+
+    @property
     def apis(self):
-        """
-        Gets the reference to the different API resource clients.
-        """
         return self._apis
+
+    @property
+    def namespace(self):
+        return self._namespace
 
     @property
     def terminal(self):
@@ -207,6 +281,7 @@ class CliClient(BaseCliClient):
                 return self
 
             def start(self):
+                from azext_arcdata.core.util import is_windows
                 from humanfriendly.terminal.spinners import AutomaticSpinner
 
                 message = self._message
@@ -284,11 +359,11 @@ class CliClient(BaseCliClient):
             :param show_progress: To display a progress spinner on the terminal.
             :return: The path to the downloaded file.
             """
-            import urllib
-            import time
-            import tempfile
-            import shutil
             import os
+            import shutil
+            import tempfile
+            import time
+            import urllib
 
             def _download(uri, name, dest):
                 stage_dir = tempfile.mkdtemp()

@@ -4,9 +4,9 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from azext_arcdata.kubernetes_sdk.models.kube_quantity import KubeQuantity
-from azext_arcdata.core.constants import ARC_API_V1
 import os
+
+from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V2
 
 RESOURCE_KIND = "SqlManagedInstance"
 """
@@ -23,10 +23,16 @@ API_GROUP = "sql.arcdata.microsoft.com"
 Defines the API group.
 """
 
-API_VERSION = ARC_API_V1
+API_VERSION = ARC_API_V2
 """
 Defines the API version.
 """
+
+SQLMI_COMMON_API_KWARGS = {
+    "group": API_GROUP,
+    "version": API_VERSION,
+    "plural": RESOURCE_KIND_PLURAL,
+}
 
 DAG_RESOURCE_KIND = "Dag"
 
@@ -34,7 +40,7 @@ DAG_RESOURCE_KIND_PLURAL = "dags"
 
 DAG_API_GROUP = "sql.arcdata.microsoft.com"
 
-DAG_API_VERSION = "v1beta1"
+DAG_API_VERSION = ARC_API_V1BETA2
 
 
 # ------------------------------------------------------------------------------
@@ -42,8 +48,6 @@ DAG_API_VERSION = "v1beta1"
 # ------------------------------------------------------------------------------
 SQLMI_PASSWORD_MIN_LENGTH = 8
 SQLMI_PASSWORD_REQUIRED_GROUPS = 3
-SQLMI_MIN_MEMORY_SIZE = KubeQuantity("2Gi")
-SQLMI_MIN_CORES_SIZE = KubeQuantity("1")
 
 # ------------------------------------------------------------------------------
 # SQL MI license type constansts
@@ -174,4 +178,18 @@ File location for sqlmi restore task SPEC.
 DAG_SPEC = os.path.join(TEMPLATE_DIR, "dag_spec.json")
 """
 File location for dag SPEC.
+"""
+
+SQLMI_DIRECT_MODE_SPEC_MERGE = os.path.join(
+    TEMPLATE_DIR, "sqlmi_default_properties_merge.json"
+)
+"""
+File location for sqlmi direct mode SPEC output.
+"""
+
+SQLMI_DIRECT_MODE_OUTPUT_SPEC = os.path.join(
+    TEMPLATE_DIR, "sqlmi_default_properties_output.json"
+)
+"""
+File location for sqlmi direct mode SPEC output.
 """

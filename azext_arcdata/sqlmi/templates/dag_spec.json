@@ -1,5 +1,5 @@
 {
-  "apiVersion": "sql.arcdata.microsoft.com/v1beta1",
+  "apiVersion": "sql.arcdata.microsoft.com/v1beta2",
   "kind": "Dag",
   "metadata": {
     "name": "dagleg1"

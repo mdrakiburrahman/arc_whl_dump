@@ -6,6 +6,7 @@
 
 from azure.cli.core.commands import CliCommandType
 from azext_arcdata.sqlmi.client import beget, beget_no_namespace
+import azext_arcdata.sqlmi.validators as validators
 
 
 def load_commands(self, _):
@@ -14,13 +15,45 @@ def load_commands(self, _):
     with self.command_group(
         "sql mi-arc", operations, client_factory=beget
     ) as g:
-        g.command("create", "arc_sql_mi_create")
-        g.command("delete", "arc_sql_mi_delete")
-        # pylint: disable=E5001
-        g.command("show", "arc_sql_mi_show")
+        g.command(
+            "create",
+            "arc_sql_mi_create",
+            supports_no_wait=True,
+            validator=validators.validate_create,
+        )
+        g.command(
+            "upgrade",
+            "arc_sql_mi_upgrade",
+            supports_no_wait=True,
+            validator=validators.validate_upgrade,
+        )
+
+        g.command(
+            "delete",
+            "arc_sql_mi_delete",
+            supports_no_wait=True,
+            validator=validators.validate_delete,
+        )
+        g.show_command(
+            "show", "arc_sql_mi_show", validator=validators.validate_show
+        )
         g.command("get-mirroring-cert", "arc_sql_mi_getmirroringcert")
-        g.command("list", "arc_sql_mi_list")
-        g.command("edit", "arc_sql_mi_edit")
+        g.command("list", "arc_sql_mi_list", validator=validators.validate_list)
+        g.command(
+            "update",
+            "arc_sql_mi_update",
+            supports_no_wait=True,
+            validator=validators.validate_update,
+        )
+
+        g.command(
+            "edit",
+            "arc_sql_mi_edit",
+            deprecate_info=g.deprecate(
+                target="edit", redirect="update", hide=True
+            ),
+            validator=validators.validate_update,
+        )
 
     with self.command_group(
         "sql mi-arc endpoint", operations, client_factory=beget
@@ -37,8 +70,8 @@ def load_commands(self, _):
         g.command("remove", "arc_sql_mi_config_remove")
 
     with self.command_group(
-        "sql mi-arc dag", operations, client_factory=beget, is_preview=True
+        "sql mi-arc dag", operations, client_factory=beget
     ) as g:
         g.command("create", "arc_sql_mi_dag_create")
         g.command("delete", "arc_sql_mi_dag_delete")
-        g.command("get", "arc_sql_mi_dag_get")
+        g.show_command("show", "arc_sql_mi_dag_show")

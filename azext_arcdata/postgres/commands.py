@@ -24,7 +24,7 @@ def load_commands(self, _):
         g.command("show", "postgres_server_arc_show")
         g.command(
             "list", "postgres_server_arc_list"
-        )  # , output=format_table) #TODO: output in table format
+        )
         g.command("edit", "postgres_server_arc_edit")
 
     # with self.command_group('postgres arc-server config',
@@ -49,7 +49,7 @@ def load_commands(self, _):
     ) as g:
         g.command(
             "list", "arc_postgres_endpoint_list"
-        )  # , hierarchical_output) #TODO: output in azdata was in hierarchical
+        )
 
     with self.command_group("postgres arc-server", is_preview=True):
         pass

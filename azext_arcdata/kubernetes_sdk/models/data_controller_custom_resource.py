@@ -3,6 +3,7 @@
 # ------------------------------------------------------------------------------
 
 from azext_arcdata.kubernetes_sdk.models.custom_resource import CustomResource
+from azext_arcdata.kubernetes_sdk.models.custom_resource_update import Update
 from azext_arcdata.kubernetes_sdk.models.dict_utils import SerializationUtils
 from azext_arcdata.kubernetes_sdk.models.data_controller_volume import (
     DataControllerVolume,
@@ -97,6 +98,7 @@ class DataControllerCustomResource(CustomResource):
             self.settings = {}
             self.security = SecuritySpec()
             self.credentials = self.Credentials()
+            self.update = Update()
             self.infrastructure = infrastructure
 
         class Credentials(SerializationUtils):
@@ -266,6 +268,7 @@ class DataControllerCustomResource(CustomResource):
             base["services"] = controller_services
             base["settings"] = getattr(self, "settings", None)
             base["security"] = self.security._to_dict()
+            base["update"] = self.update._to_dict()
             base["infrastructure"] = self.infrastructure
             return base
 
@@ -292,6 +295,9 @@ class DataControllerCustomResource(CustomResource):
             if "infrastructure" in d:
                 self.infrastructure = d["infrastructure"]
 
+            if "update" in d:
+                self.update._hydrate(d["update"])
+
     class Status(CustomResource.Status):
         """
         CustomResource.Status
@@ -305,6 +311,7 @@ class DataControllerCustomResource(CustomResource):
         def phase(self, p):
             self._phase = p
 
+        
     def _to_dict(self) -> dict:
         return super()._to_dict()
 

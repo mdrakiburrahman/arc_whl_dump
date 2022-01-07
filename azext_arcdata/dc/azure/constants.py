@@ -7,7 +7,7 @@ RESOURCE_PROVIDER_NAMESPACE = "Microsoft.AzureArcData"
 Resource provider namespace
 """
 
-API_VERSION = "2021-08-01"
+API_VERSION = "2021-11-01"
 """
 DataController and MIAA Resource provider API version
 """
@@ -200,3 +200,10 @@ API_LOG = "/api/logs"
 """
 Log upload api resource value
 """
+
+MONITORING_METRICS_PUBLISHER_ROLE_ID = "3913510d-42f4-4e42-8a64-420c390055eb"
+ROLE_DESCRIPTIONS = {
+    MONITORING_METRICS_PUBLISHER_ROLE_ID: "Monitoring Metrics Publisher"
+}
+
+EXTENSION_API_VERSION = "2021-09-01"

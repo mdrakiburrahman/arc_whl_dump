@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 
 from azext_arcdata.dc.azure.models.spn import Spn
-from azext_arcdata.dc.common_util import get_config_file_path
+from azext_arcdata.dc.util import get_config_file_path
 from azext_arcdata.core.util import display
 from azext_arcdata.core.prompt import prompt_for_input
 from . import constants as azure_constants

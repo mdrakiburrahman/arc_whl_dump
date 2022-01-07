@@ -4,14 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from knack.cli import CLIError
 from requests.exceptions import HTTPError
-
-
-class ArcError(CLIError):
-    """All errors related to arc API calls."""
-
-    pass
 
 
 class RequestTimeoutError(HTTPError):

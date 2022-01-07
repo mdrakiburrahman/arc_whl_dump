@@ -1,5 +1,5 @@
 {
-    "apiVersion": "arcdata.microsoft.com/v1beta1",
+    "apiVersion": "arcdata.microsoft.com/v1beta2",
     "kind": "PostgreSql",
     "metadata": {
       "name": "pg1"

@@ -27,6 +27,16 @@ IS_WINDOWS = os.name == "nt"
 Boolean for whether the CLI is in the Windows env.
 """
 
+PASSWORD_MIN_LENGTH = 8
+"""
+Minimum length for a password in arc
+"""
+
+PASSWORD_REQUIRED_GROUPS = 3
+"""
+Number of character groups required for a password in arc
+"""
+
 AZDATA_USERNAME = "AZDATA_USERNAME"
 """
 Defines the username env variable for login.
@@ -35,6 +45,36 @@ Defines the username env variable for login.
 AZDATA_PASSWORD = "AZDATA_PASSWORD"
 """
 Defines the password env variable for login.
+"""
+
+LOGSUI_USERNAME = "AZDATA_LOGSUI_USERNAME"
+"""
+Defines username env variable for Logsui login.
+"""
+
+LOGSUI_PASSWORD = "AZDATA_LOGSUI_PASSWORD"
+"""
+Defines password env variable for Logsui login.
+"""
+
+METRICSUI_USERNAME = "AZDATA_METRICSUI_USERNAME"
+"""
+Defines username env variable for Metricsui login.
+"""
+
+METRICSUI_PASSWORD = "AZDATA_METRICSUI_PASSWORD"
+"""
+Defines password env variable for Metricsui login.
+"""
+
+DEFAULT_LOGSUI_CERT_SECRET_NAME = "logsui-certificate-secret"
+"""
+Default secret name that holds the logsui certificate
+"""
+
+DEFAULT_METRICSUI_CERT_SECRET_NAME = "metricsui-certificate-secret"
+"""
+Default secret name that holds the metricsui certificate
 """
 
 DOMAIN_SERVICE_ACCOUNT_USERNAME = "DOMAIN_SERVICE_ACCOUNT_USERNAME"
@@ -67,6 +107,14 @@ REGISTRY_PASSWORD = "REGISTRY_PASSWORD"
 Alternative definition for the password env variable for docker private registries.
 """
 
+CERT_ARGUMENT_ERROR_TEMPLATE = """Kubernetes secret '{}'
+                        already exists while private key or public key 
+                        files are provided on the command line. If you intend 
+                        to use the secret, please remove the file parameters 
+                        and try again. If you intend to use the files 
+                        provided to the command, use a different secret name 
+                        or delete the existing secret."""
+
 # ------------------------------------------------------------------------------
 # Arc constants for convenience of not rereading data controller CRD file for
 # multiple API calls across command modules
@@ -93,9 +141,19 @@ ARC_API_V1BETA1 = "v1beta1"
 Defines the kubernetes api version v1beta1 for Arc CRDs.
 """
 
+ARC_API_V1BETA2 = "v1beta2"
+"""
+Defines the kubernetes api version v1beta2 for Arc CRDs.
+"""
+
 ARC_API_V1 = "v1"
 """
 Defines the kubernetes api version v1 for Arc CRDs.
+"""
+
+ARC_API_V2 = "v2"
+"""
+Defines the kubernetes api version v2 for Arc CRDs.
 """
 
 KUBERNETES_LABEL_PREFIX = "app.kubernetes.io/"
@@ -119,9 +177,9 @@ DATA_CONTROLLER_PLURAL = "datacontrollers"
 Defines the plural name of data controllers.
 """
 
-DATA_CONTROLLER_CRD_VERSION = ARC_API_V1
+DATA_CONTROLLER_CRD_VERSION = ARC_API_V2
 """
-Defines the kubernetes api version v1 for DataController CRD.
+Defines the kubernetes api version for DataController CRD.
 """
 
 MGMT_PROXY = "mgmtproxy-svc-external"
@@ -264,6 +322,21 @@ CONNECTIVITY_TYPES = [DIRECT, INDIRECT]
 Supported connectivity types for data controller
 """
 
+CLI_ARG_GROUP_INDIRECT_TEXT = "Indirect mode"
+"""
+Argument text for indirect mode argument group.
+"""
+
+CLI_ARG_GROUP_DIRECT_TEXT = "Direct mode"
+"""
+Argument text for direct mode argument group.
+"""
+
+CLI_ARG_RESOURCE_GROUP_TEXT = (
+    "The Azure resource group in which the data "
+    "controller resource should be added."
+)
+
 SUPPORTED_REGIONS = [
     "eastus",
     "eastus2",
@@ -277,6 +350,8 @@ SUPPORTED_REGIONS = [
     "northeurope",
     "uksouth",
     "francecentral",
+    "westus3",
+    "southcentralus",
 ]
 """
 Supported Azure regions for data controller. This list does not include EUAP regions.

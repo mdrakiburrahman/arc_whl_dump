@@ -39,8 +39,8 @@ def add_to_settings(settings, key, kwargs, arg_key):
     if arg_key in kwargs and kwargs[arg_key] is not None:
         setting_keys = key.split(".")
 
-        # Unflatten the settings dictionary by going through split keys in reverse
-        # and add to settings
+        # Unflatten the settings dictionary by going through split keys in
+        # reverse and add to settings
         #
         s_val = kwargs[arg_key]
         for i in range(len(setting_keys) - 1, 0, -1):

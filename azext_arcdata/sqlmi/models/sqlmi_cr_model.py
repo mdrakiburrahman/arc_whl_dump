@@ -4,43 +4,35 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from azext_arcdata.kubernetes_sdk.models import (
-    CustomResource,
-    SerializationUtils,
-    StorageSpec,
-    KubeQuantity,
-    VolumeClaim,
-)
+from typing import TYPE_CHECKING, Union
 
-from azext_arcdata.core.constants import DNS_NAME_REQUIREMENTS
-from azext_arcdata.core.util import name_meets_dns_requirements
-from azext_arcdata.core.labels import parse_labels
-from azext_arcdata.sqlmi.settings import parse_traceflags, add_to_settings
 from azext_arcdata.core.class_utils import (
     enforcetype,
-    validator,
     validatedclass,
+    validator,
 )
-
-from azext_arcdata.sqlmi.util import (
-    validate_sqlmi_license_type,
-    validate_sqlmi_tier,
+from azext_arcdata.core.constants import DNS_NAME_REQUIREMENTS
+from azext_arcdata.core.labels import parse_labels
+from azext_arcdata.core.util import name_meets_dns_requirements
+from azext_arcdata.kubernetes_sdk.models import (
+    CustomResource,
+    KubeQuantity,
+    SerializationUtils,
+    StorageSpec,
+    VolumeClaim,
 )
-
+from azext_arcdata.kubernetes_sdk.models.custom_resource_update import Update
 from azext_arcdata.sqlmi.constants import (
-    SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG,
-    SQLMI_MIN_MEMORY_SIZE,
-    SQLMI_MIN_CORES_SIZE,
-    SQLMI_TIER_ALLOWED_VALUES_MSG,
     SQLMI_AGENT_ENABLED,
     SQLMI_COLLATION,
     SQLMI_LANGUAGE_LCID,
-    SQLMI_TRACEFLAGS,
+    SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG,
     SQLMI_SETTINGS,
     SQLMI_TIMEZONE,
+    SQLMI_TRACEFLAGS,
 )
-
-from typing import Union, TYPE_CHECKING
+from azext_arcdata.sqlmi.settings import add_to_settings, parse_traceflags
+from azext_arcdata.sqlmi.util import validate_sqlmi_license_type
 
 # KubernetesClient is only needed for typehints, but causes a circular import.
 # This is the python provided workaround
@@ -59,9 +51,9 @@ class SqlmiCustomResource(CustomResource):
     def __init__(
         self,
         spec: "SqlmiCustomResource.Spec" = None,
-        metadata: "SlqlmiCustomResource.Metadata" = None,
+        metadata: "SqlmiCustomResource.Metadata" = None,
         *args,
-        **kwargs
+        **kwargs,
     ):
         """
         Initializes a CR object with the given json.
@@ -78,20 +70,27 @@ class SqlmiCustomResource(CustomResource):
         def __init__(
             self,
             replicas: int = 1,
+            forceHA: bool = True,
             serviceType: str = None,
             license_type: str = None,
             tier: str = None,
             *args,
-            **kwargs
+            **kwargs,
         ):
             super().__init__(*args, **kwargs)
             self.replicas = replicas
+            self.forceHA = forceHA
             self.serviceType = serviceType
             self.scheduling = self.Scheduling()
             self.security = self.Security()
+            self.preferredPrimaryReplicaSpec = (
+                self.PreferredPrimaryReplicaSpec()
+            )
             self.tier = tier
             self.license_type = license_type
             self.settings = {}
+            self.backup = self.Backup()
+            self.update = Update()
 
         @property
         def replicas(self) -> int:
@@ -99,6 +98,10 @@ class SqlmiCustomResource(CustomResource):
             Default to 1, if replica number > 1, it is a HA deployment
             """
             return self._replicas
+
+        @property
+        def forceHA(self) -> bool:
+            return self._forceHA
 
         @property
         def tier(self) -> str:
@@ -118,13 +121,17 @@ class SqlmiCustomResource(CustomResource):
         def replicas(self, r: int):
             self._replicas = r
 
+        @forceHA.setter
+        def forceHA(self, f: bool):
+            self._forceHA = f
+
         @tier.setter
         def tier(self, t: str):
             self._tier = t
 
         @license_type.setter
-        def license_type(self, l: str):
-            self._license_type = l
+        def license_type(self, license_type: str):
+            self._license_type = license_type
 
         @property
         def settings(self):
@@ -134,6 +141,15 @@ class SqlmiCustomResource(CustomResource):
         def settings(self, s: any):
             self._settings = s
 
+        @property
+        def update(self) -> Update:
+            return self._update
+        
+        @update.setter
+        @enforcetype(Update)
+        def update(self, value: Update):
+            self._update = value
+            
         class Security(SerializationUtils):
             """
             SqlmiCustomResource.Spec.Security
@@ -192,6 +208,39 @@ class SqlmiCustomResource(CustomResource):
         @security.setter
         def security(self, s: Security):
             self._security = s
+
+        class Backup(SerializationUtils):
+            def __init__(self):
+                super().__init__()
+                self.retentionPeriodInDays = 7
+
+            def apply_args(self, **kwargs):
+                super().apply_args(**kwargs)
+
+            @property
+            def retentionPeriodInDays(self) -> int:
+                return self._retentionPeriodInDays
+
+            @retentionPeriodInDays.setter
+            def retentionPeriodInDays(self, rd: int):
+                self._retentionPeriodInDays = rd
+
+            def _hydrate(self, d: dict):
+                if "retentionPeriodInDays" in d:
+                    self.retentionPeriodInDays = d["retentionPeriodInDays"]
+
+            def _to_dict(self):
+                return {
+                    "retentionPeriodInDays": (self.retentionPeriodInDays),
+                }
+
+        @property
+        def backup(self) -> Backup:
+            return self._backup
+
+        @backup.setter
+        def backup(self, b: Backup):
+            self._backup = b
 
         class Storage(CustomResource.Spec.Storage):
             """
@@ -271,12 +320,6 @@ class SqlmiCustomResource(CustomResource):
                                 self._memory = None
                                 return
 
-                            val = KubeQuantity(m)
-                            if val < SQLMI_MIN_MEMORY_SIZE:
-                                raise ValueError(
-                                    "Sqlmi memory request must be at least '{"
-                                    "}'".format(SQLMI_MIN_MEMORY_SIZE.quantity)
-                                )
                             self._memory = KubeQuantity(m)
 
                         @property
@@ -290,11 +333,6 @@ class SqlmiCustomResource(CustomResource):
                                 return
 
                             val = KubeQuantity(c)
-                            if val < SQLMI_MIN_CORES_SIZE:
-                                raise ValueError(
-                                    "Sqlmi cpu request must be at least '{"
-                                    "}'".format(SQLMI_MIN_CORES_SIZE.quantity)
-                                )
                             self._cpu = val
 
                         def _to_dict(self):
@@ -343,11 +381,6 @@ class SqlmiCustomResource(CustomResource):
                                 return
 
                             val = KubeQuantity(m)
-                            if val < SQLMI_MIN_MEMORY_SIZE:
-                                raise ValueError(
-                                    "Sqlmi memory limit must be at least '{"
-                                    "}'".format(SQLMI_MIN_MEMORY_SIZE.quantity)
-                                )
                             self._memory = val
 
                         @property
@@ -361,11 +394,6 @@ class SqlmiCustomResource(CustomResource):
                                 return
 
                             val = KubeQuantity(c)
-                            if val < SQLMI_MIN_CORES_SIZE:
-                                raise ValueError(
-                                    "Sqlmi cpu limit must be at least '{"
-                                    "}'".format(SQLMI_MIN_CORES_SIZE.quantity)
-                                )
                             self._cpu = val
 
                         def _to_dict(self):
@@ -443,6 +471,47 @@ class SqlmiCustomResource(CustomResource):
                 if "default" in d:
                     self.default._hydrate(d["default"])
 
+        class PreferredPrimaryReplicaSpec(SerializationUtils):
+            def __init__(self):
+                super().__init__()
+                self.preferredPrimaryReplica = "any"
+                self.primaryReplicaFailoverInterval = 600
+
+            def apply_args(self, **kwargs):
+                super().apply_args(**kwargs)
+
+            @property
+            def preferredPrimaryReplica(self) -> str:
+                return self._preferredPrimaryReplica
+
+            @preferredPrimaryReplica.setter
+            def preferredPrimaryReplica(self, s: str):
+                self._preferredPrimaryReplica = s
+
+            @property
+            def primaryReplicaFailoverInterval(self) -> int:
+                return self._primaryReplicaFailoverInterval
+
+            @primaryReplicaFailoverInterval.setter
+            @enforcetype(int)
+            def primaryReplicaFailoverInterval(self, dt: int):
+                self._primaryReplicaFailoverInterval = dt
+
+            def _hydrate(self, d: dict):
+                if "preferredPrimaryReplica" in d:
+                    self.preferredPrimaryReplica = d["preferredPrimaryReplica"]
+                if "primaryReplicaFailoverInterval" in d:
+                    self.primaryReplicaFailoverInterval = d[
+                        "primaryReplicaFailoverInterval"
+                    ]
+
+            def _to_dict(self):
+                fail_over_interval = self.primaryReplicaFailoverInterval
+                return {
+                    "preferredPrimaryReplica": self.preferredPrimaryReplica,
+                    "primaryReplicaFailoverInterval": fail_over_interval,
+                }
+
         @property
         def scheduling(self) -> Scheduling:
             return self._scheduling
@@ -451,32 +520,56 @@ class SqlmiCustomResource(CustomResource):
         def scheduling(self, s: Scheduling):
             self._scheduling = s
 
+        @property
+        def preferredPrimaryReplicaSpec(self) -> PreferredPrimaryReplicaSpec:
+            return self._preferredPrimaryReplicaSpec
+
+        @preferredPrimaryReplicaSpec.setter
+        def preferredPrimaryReplicaSpec(self, i: PreferredPrimaryReplicaSpec):
+            self._preferredPrimaryReplicaSpec = i
+
         def _hydrate(self, d: dict):
             super()._hydrate(d)
             if "replicas" in d:
                 self.replicas = d["replicas"]
+            if "forceHA" in d:
+                self.forceHA = d["forceHA"]
             if "serviceType" in d:
                 self.serviceType = d["serviceType"]
             if "security" in d:
                 self.security._hydrate(d["security"])
             if "scheduling" in d:
                 self.scheduling._hydrate(d["scheduling"])
+            if "preferredPrimaryReplicaSpec" in d:
+                self.preferredPrimaryReplicaSpec._hydrate(
+                    d["preferredPrimaryReplicaSpec"]
+                )
             if "tier" in d:
                 self.tier = d["tier"]
             if "licenseType" in d:
                 self.license_type = d["licenseType"]
             if "settings" in d:
                 self.settings = d["settings"]
+            if "backup" in d:
+                self.backup._hydrate(d["backup"])
+            if "update" in d:
+                self.update._hydrate(d["update"])
 
         def _to_dict(self):
             base = super()._to_dict()
             base["replicas"] = self.replicas
+            base["forceHA"] = self.forceHA
             base["serviceType"] = getattr(self, "serviceType", None)
             base["security"] = self.security._to_dict()
             base["scheduling"] = self.scheduling._to_dict()
+            base[
+                "preferredPrimaryReplicaSpec"
+            ] = self.preferredPrimaryReplicaSpec._to_dict()
             base["tier"] = self.tier
             base["licenseType"] = self.license_type
             base["settings"] = getattr(self, "settings", None)
+            base["backup"] = self.backup._to_dict()
+            base["update"] = self.update._to_dict()
             return base
 
     class Metadata(CustomResource.Metadata):
@@ -499,7 +592,8 @@ class SqlmiCustomResource(CustomResource):
 
             if len(n) > self.arc_sql_name_max_length:
                 raise ValueError(
-                    "SQL MI name '{}' exceeds {} character length limit".format(
+                    "SQL MI name '{}' exceeds {} "
+                    "character length limit".format(
                         n, self.arc_sql_name_max_length
                     )
                 )
@@ -527,7 +621,7 @@ class SqlmiCustomResource(CustomResource):
             super().__init__()
 
         @property
-        def readyReplicas(self) -> int:
+        def readyReplicas(self) -> str:
             """
             If this resource is a ReplicaSet, then how many replicas of this
             resource are available
@@ -537,7 +631,7 @@ class SqlmiCustomResource(CustomResource):
             return getattr(self, "_readyReplicas", None)
 
         @readyReplicas.setter
-        def readyReplicas(self, rp: int):
+        def readyReplicas(self, rp: str):
             self._readyReplicas = rp
 
         @property
@@ -546,10 +640,6 @@ class SqlmiCustomResource(CustomResource):
             If this resource is a HA enabled, then show the secondary service
             endpoint
             """
-            # if self._secondaryServiceEndpoint is None:
-            #     return None
-            # else:
-            #     return self._secondaryServiceEndpoint
             return getattr(self, "_secondaryServiceEndpoint", None)
 
         @secondaryServiceEndpoint.setter
@@ -617,60 +707,6 @@ class SqlmiCustomResource(CustomResource):
                     raise ValueError(STORAGE_CLASS_ERROR.format(v.className))
 
     @validator
-    def _validate_cores(self, client: "KubernetesClient"):
-        """
-        Verifies the cores request does not exceed the limit
-        """
-        # request = getattr(
-        #     self.spec.scheduling.default.resources.requests, "cpu", None
-        # )
-        # lim = getattr(
-        #     self.spec.scheduling.default.resources.limits, "cpu", None
-        # )
-
-        # # Lim and request could be empty strings if they're being deleted
-        # # from the settings
-        # if (
-        #     lim
-        #     and request
-        #     and type(lim) is KubeQuantity
-        #     and type(request) is KubeQuantity
-        # ):
-        #     if lim < request:
-        #         raise ValueError(
-        #             "CPU request of %s cannot exceed cores limit of %s"
-        #             % (request.quantity, lim.quantity)
-        #         )p
-        pass
-
-    @validator
-    def _validate_memory(self, client: "KubernetesClient"):
-        # """
-        # verifies the memory request does not exceed the limit
-        # """
-        # request = getattr(
-        #     self.spec.scheduling.default.resources.requests, "memory", None
-        # )
-        # lim = getattr(
-        #     self.spec.scheduling.default.resources.limits, "memory", None
-        # )
-
-        # # Lim and request could be empty strings if they're being deleted
-        # # from the settings
-        # if (
-        #     lim
-        #     and request
-        #     and type(lim) is KubeQuantity
-        #     and type(request) is KubeQuantity
-        # ):
-        #     if request > lim:
-        #         raise ValueError(
-        #             "Memory request of %s cannot exceed memory limit of %s"
-        #             % (request.quantity, lim.quantity)
-        #         )s
-        pass
-
-    @validator
     def _validate_license_type(self, client: "KubernetesClient"):
         """
         Validates license type. Raise error if not valid.
@@ -686,6 +722,7 @@ class SqlmiCustomResource(CustomResource):
     def apply_args(self, **kwargs):
         super().apply_args(**kwargs)
         self._set_if_provided(self.spec, "replicas", kwargs, "replicas")
+        self._set_if_provided(self.spec, "forceHA", kwargs, "forceHA")
         self._set_if_provided(
             self.spec.scheduling.default.resources.requests,
             "memory",

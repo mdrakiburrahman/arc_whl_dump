@@ -1,6 +1,7 @@
 # ------------------------------------------------------------------------------
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # ------------------------------------------------------------------------------
+import pydash as _
 
 
 class CustomResourceDefinition(object):
@@ -36,7 +37,7 @@ class CustomResourceDefinition(object):
         Returns the metadata of the crd.
         :return:
         """
-        return self.body.get("metadata")
+        return _.get(self, "body.metadata")
 
     @property
     def name(self):
@@ -44,7 +45,7 @@ class CustomResourceDefinition(object):
         Returns the name of the crd.
         :return:
         """
-        return self.metadata.get("name")
+        return _.get(self, "body.metadata.name")
 
     @property
     def kind(self):
@@ -52,7 +53,7 @@ class CustomResourceDefinition(object):
         Returns the kind of the crd.
         :return:
         """
-        return self.names.get("kind")
+        return _.get(self, "names.kind")
 
     @property
     def spec(self):
@@ -60,7 +61,7 @@ class CustomResourceDefinition(object):
         Gets the spec of this crd.
         :return:
         """
-        return self.body.get("spec")
+        return _.get(self, "body.spec")
 
     @property
     def group(self):
@@ -68,7 +69,7 @@ class CustomResourceDefinition(object):
         Gets the API group of this CRD
         :return:
         """
-        return self.spec.get("group")
+        return _.get(self, "body.spec.group")
 
     @property
     def versions(self):
@@ -76,7 +77,7 @@ class CustomResourceDefinition(object):
         Gets the API version of this CRD
         :return:
         """
-        return self.spec.get("versions")
+        return _.get(self, "body.spec.versions")
 
     @property
     def stored_version(self):
@@ -84,9 +85,9 @@ class CustomResourceDefinition(object):
         Gets the stored version of this CRD
         :return:
         """
-        for version in self.spec.get("versions"):
-            if version["storage"]:
-                return version["name"]
+        for version in _.get(self, "body.spec.versions"):
+            if _.get(version, "storage"):
+                return _.get(version, "name")
         raise ValueError(
             "CRD of kind '{}' does not have a persisted version".format(
                 self.kind
@@ -99,7 +100,7 @@ class CustomResourceDefinition(object):
         Gets the names of this crd.
         :return:
         """
-        return self.spec.get("names")
+        return _.get(self, "body.spec.names")
 
     @property
     def plural(self):
@@ -107,4 +108,4 @@ class CustomResourceDefinition(object):
         Gets the plural form of this crd.
         :return:
         """
-        return self.names.get("plural")
+        return _.get(self, "body.spec.names.plural")

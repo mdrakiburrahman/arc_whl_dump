@@ -4,12 +4,19 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from typing import List, Tuple
 from azext_arcdata.core.prompt import prompt, prompt_pass, prompt_for_input
 from azext_arcdata.core.constants import (
     IO_DELIM,
     KEY_VALUE_SPLIT,
     AZDATA_USERNAME,
     AZDATA_PASSWORD,
+    LOGSUI_USERNAME,
+    LOGSUI_PASSWORD,
+    METRICSUI_USERNAME,
+    METRICSUI_PASSWORD,
+    PASSWORD_MIN_LENGTH,
+    PASSWORD_REQUIRED_GROUPS
 )
 from knack.log import get_logger
 from knack.cli import CLIError
@@ -20,6 +27,7 @@ from humanfriendly.terminal.spinners import AutomaticSpinner
 from jinja2 import Template as JinjaTemplate
 from pathlib import Path, PureWindowsPath
 from string import Template
+from functools import wraps
 
 import os
 import time
@@ -28,28 +36,11 @@ import json
 import re
 import sys
 import signal
+import pydash as _
+import yaml
+import pem
 
 logger = get_logger(__name__)
-
-
-BOOLEAN_STATES = {
-    "1": True,
-    "yes": True,
-    "true": True,
-    "t": True,
-    "on": True,
-    "0": False,
-    "no": False,
-    "false": False,
-    "f": False,
-    "off": False,
-    None: False,
-    "None": False,
-    "": False
-}
-"""
-Mapping of different common logical prepositions to boolean equivalent.
-"""
 
 def is_windows():
     """
@@ -119,7 +110,15 @@ def display(msg):
 # ---------------------------------------------------------------------------- #
 # ---------------------------------------------------------------------------- #
 # ---------------------------------------------------------------------------- #
+def get_controller_env_list() -> List[str]:
+    """
+    Get the list of environment variables required for the controller
+    """
 
+    return [
+        AZDATA_USERNAME,
+        AZDATA_PASSWORD
+    ]
 
 def get_environment_list_by_target(target):
     """
@@ -130,9 +129,9 @@ def get_environment_list_by_target(target):
         "DOMAIN_SERVICE_ACCOUNT_PASSWORD",
     ]
 
-    controller_env_list = [AZDATA_USERNAME, AZDATA_PASSWORD]
-
+    controller_env_list = get_controller_env_list()
     env_list = []
+
     if target == "arc":
         env_list = controller_env_list
     if target == "clean":
@@ -149,6 +148,7 @@ def get_environment_list_by_target(target):
         env_list = controller_env_list
     elif target == "password":
         env_list = controller_env_list
+
     return env_list
 
 
@@ -165,33 +165,45 @@ def read_environment_variables(target, arc=False):
         """
         return env.strip().replace("_", " ").capitalize()
 
-    for env in get_environment_list_by_target(target):
+    if (os.environ.get(LOGSUI_USERNAME)
+        and os.environ.get(LOGSUI_PASSWORD)
+        and os.environ.get(METRICSUI_USERNAME)
+        and os.environ.get(METRICSUI_PASSWORD)
+    ):
+        return
+
+    for env in get_controller_env_list():
         msg = "{}:".format(display_env_name(env))
         if not os.environ.get(env):
-
+            
             if "PASSWORD" in env:
                 if arc and env == AZDATA_PASSWORD:
-                    msg = "Data controller password:"
+                    msg = "Monitoring administrator password:"
                 result = prompt_pass(msg, True)
             else:
                 if arc and env == AZDATA_USERNAME:
-                    msg = "Data controller username:"
+                    msg = "Monitoring administrator username:"
                 result = prompt(msg)
 
             os.environ[env] = result.strip()
 
+def is_set(env_var: str) -> bool:
+    """
+    Checks if the given environment variable is set and not empty/whitespace
+    """
+    var = os.getenv(env_var)
+    return var is not None and len(var.strip()) != 0
 
 def check_environment_variables(target):
     """
     Check if all necessary environment variables are set.
     """
-
-    env_list = get_environment_list_by_target(target)
-
+    env_list = get_controller_env_list()
     missing_env = list()
     for env in env_list:
-        if os.getenv(env) is None:
+        if not is_set(env):
             missing_env.append(env)
+
     if len(missing_env) > 0:
         logger.error(
             "Please set the following environment variable(s): %s."
@@ -199,6 +211,16 @@ def check_environment_variables(target):
         )
         sys.exit(1)
 
+def env_vars_are_set(vars: List[str]) -> bool:
+    """
+    Checks if the given list of environment variables are set or not.
+    :returns: True if all of the variables are set, false otherwise.
+    """
+    for var in vars:
+        if not is_set(var):
+            return False
+
+    return True
 
 def read_config(config_profile, config_filename):
     """
@@ -566,6 +588,24 @@ def log_error(error_message, error_detail):
     )
 
 
+def retry_method(retry_count: int, retry_delay: int, retry_method_description: str, retry_on_exceptions: tuple):
+    def retry_method_wrapper(f):
+        """
+        Decorator wraps the method with retry logic.  See retry
+        """
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            return retry(
+                lambda: f(*args, **kwargs),
+                retry_count=retry_count,
+                retry_delay=retry_delay,
+                retry_method=retry_method_description,
+                retry_on_exceptions=retry_on_exceptions
+            )
+        return wrapper
+    return retry_method_wrapper
+
+
 def retry(func, *func_args, **kwargs):
     """
     Function retry until max limit
@@ -599,7 +639,7 @@ def retry(func, *func_args, **kwargs):
             continue
     logger.debug(exception_caused)
     log_error(
-        str(getattr(exception_caused.reason, "__context__", exception_caused)),
+        str(_.get(exception_caused, ["reason", "__context__"], exception_caused)),
         "Failed to %s after retrying for %d minute(s)."
         % (retry_method, (retry_count * retry_delay) / 60),
     )
@@ -670,6 +710,75 @@ def name_meets_dns_requirements(n: str):
             return False
 
     return True
+
+def is_valid_password(pw, user):
+    """
+    Checks if the provided pw is a sufficiently complex password i.e. is at least
+    eight characters long and contains a char from at least three of these
+    groups
+    -Uppercase letters
+    -Lowercase letters
+    -Base 10 digits
+    -Non-alphanumeric characters
+    :param pw: the password
+    :param user: username for the sql instance
+    :return: True if pw meets requirements, False otherwise
+    """
+    if not pw:
+        return False
+
+    if user in pw:
+        return False
+
+    if len(pw) < PASSWORD_MIN_LENGTH:
+        return False
+
+    lower = 0
+    upper = 0
+    special = 0
+    digit = 0
+
+    for c in pw:
+        if c.isdigit():
+            digit = 1
+        elif c.isalpha():
+            if c.isupper():
+                upper = 1
+            else:
+                lower = 1
+        else:
+            # Assume any other characters qualify as 'special' characters.
+            # Work item to implement stricter policies: #1282103
+            #
+            special = 1
+
+    return (lower + upper + special + digit) >= PASSWORD_REQUIRED_GROUPS
+
+def validate_creds_from_env(username_var: str, password_var: str):
+            """
+            Ensures that both or neither of the username and password
+            environment variables are set and that passwords meet complexity
+            requirements
+            """
+            username = os.environ.get(username_var)
+            password = os.environ.get(password_var)
+            if bool(username) ^ bool(password):
+                raise CLIError(
+                    "Must specify both {0} and {1} or neither.".format(
+                        username_var,
+                        password_var
+                    )
+                )
+            elif (username and password 
+                and not is_valid_password(password, username)):
+                raise CLIError( "Invalid password from " 
+                                + password_var
+                                + ". Passwords must be at "
+                                "least 8 characters long, cannot contain the "
+                                "username, and must contain characters from "
+                                "three of the following four sets: Uppercase "
+                                "letters, Lowercase letters, Base 10 digits, "
+                                "and Symbols. Please try again.\n")
 
 
 def prune_dict(d):
@@ -1216,3 +1325,137 @@ def get_config_from_template(template_file, cluster_object):
     with open(template_file, "r") as f:
         template = f.read()
         return JinjaTemplate(template).render(model=cluster_object)
+
+
+def get_yaml_from_template(template_file, model):
+    return yaml.safe_load(
+        get_config_from_template(
+            template_file,
+            model,
+        )
+    )
+
+def parse_cert_files(
+    certificate_public_key_file: str, 
+    certificate_private_key_file: str) -> Tuple[str, str]:
+    """
+    parses certificate and private key files and returns the values.
+    """
+    if not os.path.exists(certificate_public_key_file) or not os.path.isfile(
+        certificate_public_key_file
+    ):
+        raise ValueError(
+            "Certificate public key file '"
+            + certificate_public_key_file
+            + "' does not exist."
+        )
+
+    if not os.path.exists(certificate_private_key_file) or not os.path.isfile(
+        certificate_private_key_file
+    ):
+        raise ValueError(
+            "Certificate private key file '"
+            + certificate_private_key_file
+            + "' does not exist."
+        )
+
+    # Read certificate files.
+    #
+    with open(certificate_public_key_file) as f:
+        cert_public_key = f.read()
+
+    with open(certificate_private_key_file) as f:
+        cert_private_key = f.read()
+
+    # Validate PEM format.
+    #
+    try:
+        parsed_certificates = pem.parse(bytes(cert_public_key, "utf-8"))
+    except:
+        raise ValueError(
+            "Certificate public key does not have a valid PEM format."
+        )
+
+    if len(parsed_certificates) != 1:
+        raise ValueError(
+            "Certificate public key file '"
+            + certificate_public_key_file
+            + "' must contain one and only one valid PEM formatted certificate."
+        )
+
+    try:
+        parsed_privatekeys = pem.parse(bytes(cert_private_key, "utf-8"))
+    except:
+        raise ValueError(
+            "Certificate private key does not have a valid PEM format."
+        )
+
+    if len(parsed_privatekeys) != 1:
+        raise ValueError(
+            "Certificate private key file '"
+            + certificate_private_key_file
+            + "' must contain one and only one valid PEM formatted private key."
+        )
+
+    # Ensure that certificate is of type pem._core.Certificate and private key
+    # is of type pem._core.RSAPrivateKey.
+    #
+    if not isinstance(parsed_certificates[0], pem._core.Certificate):
+        raise ValueError(
+            "Certificate data in file '"
+            + certificate_public_key_file
+            + "' must have a valid PEM formatted certificate."
+        )
+
+    if not isinstance(parsed_privatekeys[0], pem._core.RSAPrivateKey):
+        raise ValueError(
+            "Private key data in file '"
+            + certificate_private_key_file
+            + "' must have a valid PEM formatted private key."
+        )
+
+    return cert_public_key, cert_private_key
+
+def generate_certificate_and_key(hostname: str, common_name: str, sans: List[str] = []) -> Tuple:
+    """
+    Generates an RSA public/private key pair and uses them to create
+    a self-signed server certificate.
+    :returns: Tuple containing PEM formatted certificate and private key
+    """
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization, hashes
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.x509.oid import NameOID
+    from cryptography import x509
+    from datetime import datetime, timedelta
+    # Generate public/private key pair
+    #
+    key_pair = rsa.generate_private_key(
+        backend=default_backend(),
+        key_size=2048,
+        public_exponent=65537
+    )
+
+    cn = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    additional_sans = x509.SubjectAlternativeName([x509.DNSName(name) for name in sans])
+
+    cert = (
+        x509.CertificateBuilder()
+            .subject_name(x509.Name(cn))
+            .issuer_name(cn)
+            .serial_number(1001)
+            .not_valid_before(datetime.utcnow())
+            .not_valid_after(datetime.now() + timedelta(days=5*365))
+            .public_key(key_pair.public_key())
+            .add_extension(additional_sans, False)
+            .sign(key_pair, hashes.SHA256(), default_backend())
+    )
+    
+    cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+    key_pem = key_pair.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    return cert_pem, key_pem, cert.fingerprint(hashes.SHA256())

@@ -7,9 +7,6 @@
 from azext_arcdata.kubernetes_sdk.models import (
     CustomResource,
     SerializationUtils,
-    StorageSpec,
-    KubeQuantity,
-    VolumeClaim,
 )
 
 

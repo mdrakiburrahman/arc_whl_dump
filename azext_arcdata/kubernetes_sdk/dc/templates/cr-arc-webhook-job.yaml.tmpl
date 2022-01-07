@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cr-arc-webhook-job
+rules:
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingwebhookconfigurations"]
+  resourceNames: ["arcdata.microsoft.com-webhook-{{ model.namespace }}"]
+  verbs: ["get", "delete"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingwebhookconfigurations"]
+  verbs: ["create"]
+- apiGroups: ["*"]
+  resources: ["namespaces"]
+  resourceNames: ["{{ model.namespace }}"]
+  verbs: ["patch"]

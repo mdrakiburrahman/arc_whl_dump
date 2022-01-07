@@ -1,5 +1,5 @@
 {
-  "apiVersion": "tasks.sql.arcdata.microsoft.com/v1beta1",
+  "apiVersion": "tasks.sql.arcdata.microsoft.com/v1",
   "kind": "SqlManagedInstanceRestoreTask",
   "metadata": {
     "name": "sql01-restore-to-sql01test"

@@ -3,9 +3,8 @@
 # Licensed under the MIT License. See License.txt in the project root for
 # license information.
 # ------------------------------------------------------------------------------
-
 __title__ = "arcdata"
-__version__ = "1.0.0"
+__version__ = "1.1.3"
 __description__ = "Tools for managing ArcData."
 __license__ = "MIT"
 __url__ = "https://docs.microsoft.com/en-us/azure/azure-arc/data/"

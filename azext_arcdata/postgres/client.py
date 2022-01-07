@@ -7,24 +7,23 @@
 from azext_arcdata.core.cli_client import CliClient
 from azext_arcdata.core.util import DeploymentConfigUtil
 
-
 __all__ = ["beget"]
 
 
 def beget(az_cli, kwargs):
     """Client factory"""
-    return PostgresClientMixin(az_cli, namespace=kwargs.get("namespace"))
+    return PostgresClientMixin(az_cli, kwargs)
 
 
-def beget_no_check_auth(az_cli, _):
+def beget_no_check_auth(az_cli, kwargs):
     """Client factory - no check on authentication"""
-    return PostgresClientMixin(az_cli, check_namespace=False)
+    return PostgresClientMixin(az_cli, kwargs, check_namespace=False)
 
 
 class PostgresClientMixin(CliClient):
-    def __init__(self, az_cli, namespace=None, check_namespace=True):
+    def __init__(self, az_cli, kwargs, check_namespace=True):
         super(PostgresClientMixin, self).__init__(
-            az_cli, namespace=namespace, check_namespace=check_namespace
+            az_cli, kwargs, check_namespace=check_namespace
         )
 
     @staticmethod

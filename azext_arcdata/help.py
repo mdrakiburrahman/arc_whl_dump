@@ -6,5 +6,6 @@
 
 from knack.help_files import helps
 import azext_arcdata.sqlmi.help  # pylint: disable=check-to-ignore
+import azext_arcdata.sqlmidb.help  # pylint: disable=check-to-ignore
 import azext_arcdata.dc.help  # pylint: disable=check-to-ignore
 import azext_arcdata.postgres.help  # pylint: disable=check-to-ignore

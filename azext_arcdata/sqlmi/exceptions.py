@@ -8,4 +8,6 @@ from knack.cli import CLIError
 
 
 class SqlmiError(CLIError):
-    """All errors related to sqlmi API calls."""
+    """
+    All errors related to sqlmi API calls.
+    """

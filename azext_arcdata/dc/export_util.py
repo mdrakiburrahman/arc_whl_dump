@@ -4,6 +4,38 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+import base64
+import datetime
+import hashlib
+import hmac
+import json
+import os
+from enum import Enum
+from http import HTTPStatus
+
+import ndjson
+import requests
+from azext_arcdata.core.http_codes import http_status_codes
+from azext_arcdata.core.prompt import prompt_for_input, prompt_y_n
+from azext_arcdata.core.util import display, retry
+from azext_arcdata.dc.azure import constants as azure_constants
+from azext_arcdata.dc.azure.ad_auth_util import acquire_token
+from azext_arcdata.dc.constants import (
+    DEFAULT_LOG_QUERY_WINDOW_IN_MINUTE,
+    DEFAULT_METRIC_QUERY_WINDOW_IN_MINUTE,
+    DEFAULT_QUERY_WINDOW,
+    DEFAULT_USAGE_QUERY_WINDOW_IN_MINUTE,
+    INSTANCE_NAME,
+    KIND,
+    LAST_USAGE_UPLOAD_FLAG,
+    NAMESPACE,
+)
+from azext_arcdata.dc.exceptions import RequestTimeoutError, ServerError
+from azext_arcdata.dc.util import (
+    get_config_file_path,
+    get_resource_uri,
+    write_file,
+)
 from azext_arcdata.sqlmi.constants import (
     SQLMI_LICENSE_TYPE_BASE_PRICE,
     SQLMI_LICENSE_TYPE_BASE_PRICE_AZURE,
@@ -14,40 +46,14 @@ from azext_arcdata.sqlmi.constants import (
     SQLMI_TIER_GENERAL_PURPOSE_ALL,
     SQLMI_TIER_GENERAL_PURPOSE_AZURE,
 )
-from azext_arcdata.dc.common_util import (
-    get_resource_uri,
-    write_file,
-)
-from azext_arcdata.dc.common_util import get_config_file_path
-from azext_arcdata.dc.azure.ad_auth_util import acquire_token
-from azext_arcdata.dc.azure import constants as azure_constants
-from azext_arcdata.dc.exceptions import RequestTimeoutError, ServerError
-from azext_arcdata.dc import (
-    constants,
-    export_instance_properties as instance_properties,
-)
-from azext_arcdata.core.http_codes import http_status_codes
-from azext_arcdata.core.util import display, retry
-
-from knack.log import get_logger
-from knack.prompting import prompt
+from jsonschema import validate
 from knack.cli import CLIError
+from knack.log import get_logger
+from knack.prompting import NoTTYException, prompt
 from requests.adapters import HTTPAdapter
 from requests.exceptions import HTTPError
+from urllib3.exceptions import MaxRetryError, NewConnectionError, TimeoutError
 from urllib3.util.retry import Retry
-from urllib3.exceptions import NewConnectionError, MaxRetryError, TimeoutError
-from http import HTTPStatus
-from enum import Enum
-from jsonschema import validate
-
-import base64
-import datetime
-import hashlib
-import hmac
-import os
-import ndjson
-import json
-import requests
 
 CONNECTION_RETRY_ATTEMPTS = 12
 RETRY_INTERVAL = 5
@@ -211,10 +217,11 @@ def metrics_upload(metrics):
             )
 
 
+"""
 # Given a resource registered in Azure, returns the k8s namespace and name.
 def _parse_resource(resource):
-    name = resource[instance_properties.INSTANCE_NAME]
-    namespace = resource[instance_properties.NAMESPACE]
+    name = resource[INSTANCE_NAME]
+    namespace = resource[NAMESPACE]
 
     # Resources deployed outside the controller's namespace are named in the
     # format 'namespace_name'
@@ -227,6 +234,8 @@ def _parse_resource(resource):
             "namespace_name' or 'name'.".format(name)
         )
     return namespace, name
+
+"""
 
 
 def _set_header():
@@ -252,6 +261,7 @@ def _set_url(location, resource_id):
 # ##############################################################################
 # Log export/upload functions
 # ##############################################################################
+
 LOGS_CONFIG_FILENAME = "logs-config.json"
 """
 Log config file name
@@ -317,6 +327,7 @@ def generate_export_file_name(file_path, index):
     return export_file_name
 
 
+"""
 def _write_logs(data_controller, logs, file_name, resource, timestamp):
 
     resource_uri = get_resource_uri(resource, data_controller)
@@ -325,20 +336,19 @@ def _write_logs(data_controller, logs, file_name, resource, timestamp):
         for log in logs:
             result = _convert_to_logs_format(
                 log,
-                resource[instance_properties.INSTANCE_NAME],
-                azure_constants.RESOURCE_TYPE_FOR_KIND[
-                    resource[instance_properties.KIND]
-                ],
+                resource[INSTANCE_NAME],
+                azure_constants.RESOURCE_TYPE_FOR_KIND[resource[KIND]],
                 resource_uri,
             )
             content.append(result)
 
     write_file(file_name, content, ExportType.logs.value, timestamp)
+"""
 
 
 def logs_upload(logs, customer_id, shared_key):
-    import zlib
     import base64
+    import zlib
 
     for log in logs:
         unzip = str(
@@ -524,6 +534,7 @@ def _post_logs_to_logs_analytics(
     resource_uri,
 ):
     uri = _build_log_request_uri(customer_id)
+    body = body.encode("utf-8")
     headers = _build_log_request_header(
         customer_id, shared_key, len(body), log_type, resource_uri
     )
@@ -718,7 +729,7 @@ def get_export_timestamp(export_type):
     start_time_from_status_file = get_export_timestamp_from_file(export_type)
 
     default_start_time = datetime.datetime.utcnow() - datetime.timedelta(
-        minutes=constants.DEFAULT_QUERY_WINDOW[export_type]
+        minutes=DEFAULT_QUERY_WINDOW[export_type]
     )
 
     # Choose later time as start time to avoid export and upload dup records
@@ -796,9 +807,7 @@ def _get_upload_status_file_path(filename):
                 ),
                 "data_timestamp": (
                     upload_timestamp
-                    - timedelta(
-                        minutes=constants.DEFAULT_METRIC_QUERY_WINDOW_IN_MINUTE
-                    )
+                    - timedelta(minutes=DEFAULT_METRIC_QUERY_WINDOW_IN_MINUTE)
                 ).isoformat(sep=" ", timespec="milliseconds"),
             },
             "logs": {
@@ -807,9 +816,7 @@ def _get_upload_status_file_path(filename):
                 ),
                 "data_timestamp": (
                     upload_timestamp
-                    - timedelta(
-                        minutes=constants.DEFAULT_LOG_QUERY_WINDOW_IN_MINUTE
-                    )
+                    - timedelta(minutes=DEFAULT_LOG_QUERY_WINDOW_IN_MINUTE)
                 ).isoformat(sep=" ", timespec="milliseconds"),
             },
             "usage": {
@@ -818,9 +825,7 @@ def _get_upload_status_file_path(filename):
                 ),
                 "data_timestamp": (
                     upload_timestamp
-                    - timedelta(
-                        minutes=constants.DEFAULT_USAGE_QUERY_WINDOW_IN_MINUTE,
-                    )
+                    - timedelta(minutes=DEFAULT_USAGE_QUERY_WINDOW_IN_MINUTE)
                 ).isoformat(sep=" ", timespec="milliseconds"),
             },
         }
@@ -922,7 +927,7 @@ def add_last_upload_flag(path):
         with open(path, encoding="utf-8") as usage_file:
             data = json.load(usage_file)
 
-        data[constants.LAST_USAGE_UPLOAD_FLAG] = 1
+        data[LAST_USAGE_UPLOAD_FLAG] = 1
 
         with open(path, "w") as usage_file:
             json.dump(data, usage_file)
@@ -962,7 +967,9 @@ def format_sqlmi_license_type_for_azure(license_type):
 
 def set_azure_upload_status(data_controller, data_controller_azure):
     """
-    Set azure upload status in data_controller ("ksRaw.status.azure.upload_status"). Copy it from the azure resource, if any. Otherwise set it empty.
+    Set azure upload status in data_controller
+    ("ksRaw.status.azure.upload_status"). Copy it from the azure resource, if
+    any. Otherwise set it empty.
     """
 
     create_azure_status_key_if_missing(data_controller)
@@ -988,34 +995,25 @@ def update_azure_upload_status(
     :param client: The client used to create/update the Azure resource.
     :param data_controller: The data_controller from the export file.
     :param export_type: The export type (e.g "usage", "logs", "metrics").
-    :param last_upload_time: If upload was successful (no exception), this will be the "lastUploadTime" in Azure.
+    :param last_upload_time: If upload was successful (no exception), this
+           will be the "lastUploadTime" in Azure.
     :param ex: The exception for the upload, if any.
     """
 
-    msg = "Successful upload."
-    state = "Success"
+    msg = "Successful upload"
     if ex is not None:
         msg = ex
-        state = "Error"
-
-    # The new status for 'export_type'
-    upload_status_status = {"message": str(msg), "state": state}
 
     upload_status = {
         "lastUploadTime": last_upload_time.strftime("%Y-%m-%d %H:%M:%S"),
-        "status": upload_status_status,
+        "message": str(msg),
     }
 
     create_azure_status_key_if_missing(data_controller)
 
-    if ex is not None:
-        data_controller["k8sRaw"]["status"]["azure"]["uploadStatus"][
-            f"{export_type}"
-        ]["status"] = upload_status_status
-    else:
-        data_controller["k8sRaw"]["status"]["azure"]["uploadStatus"][
-            f"{export_type}"
-        ] = upload_status
+    data_controller["k8sRaw"]["status"]["azure"]["uploadStatus"][
+        "{export_type}".format(export_type=export_type)
+    ] = upload_status
 
     client.create_dc_azure_resource(data_controller)
 
@@ -1040,7 +1038,7 @@ def create_azure_status_key_if_missing(data_controller):
     # Default to the minimum date possible, and empty message/state
     default_upload_status = {
         "lastUploadTime": datetime.date.min.strftime("%Y-%m-%d %H:%M:%S"),
-        "status": {"message": "", "state": ""},
+        "message": "",
     }
 
     if (
@@ -1066,3 +1064,45 @@ def create_azure_status_key_if_missing(data_controller):
         data_controller["k8sRaw"]["status"]["azure"]["uploadStatus"][
             "logs"
         ] = default_upload_status
+
+
+def check_prompt_export_output_file(file_path, force):
+    """
+    Checks if export output file exists, and prompt if necessary.
+    """
+    # Check if file exists
+    export_file_exists = True
+    overwritten = False
+
+    while export_file_exists and not overwritten:
+        export_file_exists = os.path.exists(file_path)
+        if not force and export_file_exists:
+            try:
+                yes = prompt_y_n(
+                    "{} exists already, do you want to overwrite it?".format(
+                        file_path
+                    )
+                )
+            except NoTTYException as e:
+                raise NoTTYException(
+                    "{} Please make sure the file does not exist in a"
+                    " non-interactive environment".format(e)
+                )
+
+            overwritten = True if yes else False
+
+            if overwritten:
+                os.remove(file_path)
+            else:
+                file_path = prompt_for_input(
+                    "Please provide a file name with the path: "
+                )
+                export_file_exists = True
+                overwritten = False
+
+        elif force:
+            overwritten = True
+            if export_file_exists:
+                os.remove(file_path)
+
+    return file_path

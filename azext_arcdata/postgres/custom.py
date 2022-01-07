@@ -13,6 +13,7 @@ from azext_arcdata.core.util import (
     get_config_from_template,
 )
 from azext_arcdata.kubernetes_sdk.client import (
+    KubernetesClient,
     KubernetesError,
     K8sApiException,
     http_status_codes,
@@ -36,7 +37,6 @@ from azext_arcdata.core.prompt import prompt, prompt_pass, prompt_y_n
 from azext_arcdata.postgres.constants import (
     RESOURCE_KIND,
     COMMAND_UNIMPLEMENTED,
-    API_VERSION,
     API_GROUP,
     DEFAULT_ENGINE_VERSION,
 )
@@ -52,6 +52,8 @@ from humanfriendly.terminal.spinners import AutomaticSpinner
 from knack.prompting import NoTTYException
 from kubernetes import client as k8sClient
 
+from azext_arcdata.kubernetes_sdk.dc.constants import DATA_CONTROLLER_CRD_NAME
+
 # import azext_arcdata.core.deploy as util
 import copy
 import datetime
@@ -65,6 +67,8 @@ import yaml
 import sys
 from knack.log import get_logger
 from urllib3.exceptions import NewConnectionError, MaxRetryError
+
+from azext_arcdata.kubernetes_sdk.dc.constants import POSTGRES_CRD_NAME
 
 CONNECTION_RETRY_ATTEMPTS = 12
 RETRY_INTERVAL = 5
@@ -161,7 +165,7 @@ def postgres_server_arc_create(
             # TODO: Use mutating web hooks to set these default values.
             #
             spec_object = {
-                "apiVersion": API_GROUP + "/" + API_VERSION,
+                "apiVersion": API_GROUP + "/" + KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                 "kind": RESOURCE_KIND,
                 "metadata": {},
                 "spec": {
@@ -211,7 +215,7 @@ def postgres_server_arc_create(
                 cr.metadata.name,
                 cr.metadata.namespace,
                 group=API_GROUP,
-                version=API_VERSION,
+                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                 plural=resource_kind_plural,
             ),
             retry_count=CONNECTION_RETRY_ATTEMPTS,
@@ -236,7 +240,7 @@ def postgres_server_arc_create(
                 lambda: client.apis.kubernetes.list_namespaced_custom_object(
                     namespace,
                     group=ARC_GROUP,
-                    version=DATA_CONTROLLER_CRD_VERSION,
+                    version=KubernetesClient.get_crd_version(DATA_CONTROLLER_CRD_NAME),
                     plural=DATA_CONTROLLER_PLURAL,
                 ),
                 retry_count=CONNECTION_RETRY_ATTEMPTS,
@@ -360,7 +364,7 @@ def postgres_server_arc_create(
                 cr.metadata.name,
                 cr.metadata.namespace,
                 group=API_GROUP,
-                version=API_VERSION,
+                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                 plural=resource_kind_plural,
             )
             deployed_cr = CustomResource.decode(
@@ -390,7 +394,7 @@ def postgres_server_arc_create(
                                 cr.metadata.name,
                                 cr.metadata.namespace,
                                 group=API_GROUP,
-                                version=API_VERSION,
+                                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                                 plural=resource_kind_plural,
                             ),
                             retry_count=CONNECTION_RETRY_ATTEMPTS,
@@ -429,7 +433,7 @@ def postgres_server_arc_create(
                             cr.metadata.name,
                             cr.metadata.namespace,
                             group=API_GROUP,
-                            version=API_VERSION,
+                            version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                             plural=resource_kind_plural,
                         ),
                         retry_count=CONNECTION_RETRY_ATTEMPTS,
@@ -597,7 +601,7 @@ def postgres_server_arc_edit(
                 cr.metadata.name,
                 cr.metadata.namespace,
                 group=API_GROUP,
-                version=API_VERSION,
+                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                 plural=crd.plural,
             )
             deployed_cr = CustomResource.decode(
@@ -627,7 +631,7 @@ def postgres_server_arc_edit(
                                 cr.metadata.name,
                                 cr.metadata.namespace,
                                 group=API_GROUP,
-                                version=API_VERSION,
+                                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                                 plural=crd.plural,
                             )
                         )
@@ -655,7 +659,7 @@ def postgres_server_arc_edit(
                             cr.metadata.name,
                             cr.metadata.namespace,
                             group=API_GROUP,
-                            version=API_VERSION,
+                            version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                             plural=crd.plural,
                         )
                     )
@@ -799,7 +803,7 @@ def postgres_server_arc_list(client, namespace=None, use_k8s=None):
         response = client.apis.kubernetes.list_namespaced_custom_object(
             namespace,
             group=API_GROUP,
-            version=API_VERSION,
+            version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
             plural=crd.spec.names.plural,
         )
         # Temporary, need to discuss with PMs what standardized output we"d like for all partners
@@ -826,9 +830,7 @@ def postgres_server_arc_list(client, namespace=None, use_k8s=None):
         raise CLIError(e)
 
 
-def arc_postgres_endpoint_list(
-    client, name=None, namespace=None, use_k8s=None
-):
+def arc_postgres_endpoint_list(client, name=None, namespace=None, use_k8s=None):
     """
     List Azure Arc enabled PostgreSQL Hyperscale server groups.
     :param client:
@@ -860,7 +862,7 @@ def arc_postgres_endpoint_list(
             response = client.apis.kubernetes.list_namespaced_custom_object(
                 namespace,
                 group=API_GROUP,
-                version=API_VERSION,
+                version=KubernetesClient.get_crd_version(POSTGRES_CRD_NAME),
                 plural=crd.spec.names.plural,
             )
             items = response.get("items")
@@ -1032,7 +1034,7 @@ def _get_postgres_crd():
     Returns the postgresql CRD.
     :return:
     """
-    api = k8sClient.ApiextensionsV1beta1Api()
+    api = k8sClient.ApiextensionsV1Api()
     crds = api.list_custom_resource_definition()
     for crd in crds.items:
         if crd.spec.names.kind == RESOURCE_KIND:

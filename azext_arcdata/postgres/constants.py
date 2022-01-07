@@ -5,7 +5,7 @@
 # -----------------------------------------------------------------------------
 
 from azext_arcdata.kubernetes_sdk.models.kube_quantity import KubeQuantity
-from azext_arcdata.core.constants import ARC_API_V1BETA1
+from azext_arcdata.core.constants import ARC_API_V1BETA2
 import os
 
 RESOURCE_KIND = "PostgreSql"
@@ -13,12 +13,17 @@ RESOURCE_KIND = "PostgreSql"
 Kubernetes resource kind for postgres.
 """
 
+RESOURCE_KIND_PLURAL = "postgresqls"
+"""
+Kubernetes plural resource kind for postgres.
+"""
+
 API_GROUP = "arcdata.microsoft.com"
 """
 Defines the API group.
 """
 
-API_VERSION = ARC_API_V1BETA1
+API_VERSION = ARC_API_V1BETA2
 """
 Defines the API version.
 """

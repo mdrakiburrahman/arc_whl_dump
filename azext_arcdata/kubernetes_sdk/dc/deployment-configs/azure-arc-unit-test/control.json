@@ -1,0 +1,59 @@
+{
+    "apiVersion": "arcdata.microsoft.com/v2",
+    "kind": "DataController",
+    "metadata": {
+       "name": "datacontroller"
+    },
+    "spec": {
+       "infrastructure": "azure",
+       "credentials": {
+          "serviceAccount": "sa-arc-controller",
+          "dockerRegistry": "arc-private-registry",
+          "domainServiceAccount": "domain-service-account-secret"
+       },
+       "docker": {
+          "registry": "repo.corp.microsoft.com",
+          "repository": "arcdata-dev",
+          "imageTag": "v1.1.0_ubuntu2004-jakedern",
+          "imagePullPolicy": "IfNotPresent"
+       },
+       "storage": {
+          "data": {
+            "className": "local-storage",
+            "accessMode": "ReadWriteOnce",
+            "size": "15Gi"
+          },
+          "logs": {
+            "className": "local-storage",
+            "accessMode": "ReadWriteOnce",
+            "size": "10Gi"
+          }
+       },
+       "security": {
+          "allowDumps": true,
+          "allowNodeMetricsCollection": true,
+          "allowPodMetricsCollection": true
+       },
+       "services": [
+          {
+             "name": "controller",
+             "serviceType": "NodePort",
+             "port": 30080
+          }
+       ],
+       "settings": {
+          "azure": {
+             "enableAutoUploadMetrics": "false",
+             "enableAutoUploadLogs": "false"
+          },
+          "controller": {
+             "logs.rotation.size": "5000",
+             "logs.rotation.days": "7"
+          },
+          "ElasticSearch": {
+             "vm.max_map_count": "-1"
+          }
+       }
+    }
+ }
+ 

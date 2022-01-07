@@ -5,36 +5,17 @@
 # ------------------------------------------------------------------------------
 
 """Command definitions for `data control`."""
-
-from azext_arcdata.dc.exceptions import ArcError
-from azext_arcdata.dc.constants import (
-    CONFIG_DIR,
-    HELP_DIR,
-    CONTROL_CONFIG_FILENAME,
-    CONFIG_FILES,
-    DATA_CONTROLLER_CRD,
-    INFRASTRUCTURE_AUTO,
-    INFRASTRUCTURE_CR_ALLOWED_VALUES,
-    LAST_BILLING_USAGE_FILE,
-    LAST_USAGE_UPLOAD_FLAG,
-    POSTGRES_CRD,
-    SQLMI_CRD,
-    SQLMI_RESTORE_TASK_CRD,
-    EXPORT_TASK_CRD,
-    DAG_CRD,
-    DIRECT,
-    EXPORT_TASK_RESOURCE_KIND_PLURAL,
-    EXPORT_TASK_CRD_VERSION,
-    TASK_API_GROUP,
-    MAX_POLLING_ATTEMPTS,
-    MONITOR_CRD,
-    EXPORT_COMPLETED_STATE,
-    CRD_FILE_DICT,
-    SPEC_FILE_DICT,
+import uuid
+from azext_arcdata.dc.azure.constants import (
+    API_VERSION,
+    INSTANCE_TYPE_DATA_CONTROLLER,
+    MONITORING_METRICS_PUBLISHER_ROLE_ID,
+    RESOURCE_PROVIDER_NAMESPACE,
+    ROLE_DESCRIPTIONS,
 )
-from azext_arcdata.dc.azure import constants as azure_constants
+from azure.cli.core.azclierror import ValidationError
+from azext_arcdata.dc.constants import LAST_USAGE_UPLOAD_FLAG
 from azext_arcdata.dc.export_util import (
-    add_last_upload_flag,
     ExportType,
     logs_upload,
     metrics_upload,
@@ -43,84 +24,37 @@ from azext_arcdata.dc.export_util import (
     EXPORT_FILE_DICT_KEY,
     EXPORT_SANITIZERS,
     get_export_timestamp_from_file,
-    get_export_timestamp,
+    check_prompt_export_output_file,
     set_azure_upload_status,
-    update_azure_upload_status,
     update_upload_status_file,
-    generate_export_file_name,
+    update_azure_upload_status,
 )
-from azext_arcdata.dc.common_util import (
-    validate_infrastructure_value,
-    get_kubernetes_infra,
-    validate_dc_create_params,
-    write_file,
-    write_output_file,
-)
-from azext_arcdata.core.kubernetes import create_namespace_with_retry
 from azext_arcdata.core.serialization import Sanitizer
-from azext_arcdata.kubernetes_sdk.client import K8sApiException, KubernetesError
-from azext_arcdata.kubernetes_sdk.models.data_controller_custom_resource import (
-    DataControllerCustomResource,
-)
-from azext_arcdata.kubernetes_sdk.models.custom_resource_definition import (
-    CustomResourceDefinition,
-)
-from azext_arcdata.kubernetes_sdk.models.custom_resource import CustomResource
-from azext_arcdata.kubernetes_sdk.models.export_task_custom_resource import (
-    ExportTaskCustomResource,
-)
-import azext_arcdata.core.kubernetes as kubernetes_util
-from azext_arcdata.core.constants import (
-    ARC_GROUP,
-    DATA_CONTROLLER_CRD_VERSION,
-    ARC_NAMESPACE_LABEL,
-    DATA_CONTROLLER_PLURAL,
-    USE_K8S_EXCEPTION_TEXT,
-)
 from azext_arcdata.core.prompt import (
     prompt_for_input,
     prompt_for_choice,
     prompt_assert,
     prompt_y_n,
 )
-from azext_arcdata.core.util import (
-    DeploymentConfigUtil,
-    time_ns,
-    check_and_set_kubectl_context,
-    retry,
-    read_config,
-    check_missing,
-    control_config_check,
-    parse_labels,
-    is_windows,
-)
-from azext_arcdata.core.debug import (
-    copy_debug_logs,
-    take_dump,
-)
-
-from humanfriendly.terminal.spinners import AutomaticSpinner
+from azext_arcdata.core.arcdata_cli_credentials import ArcDataCliCredential
+from azext_arcdata.core.util import DeploymentConfigUtil
 from jsonschema import validate
 from knack.prompting import NoTTYException
 from knack.log import get_logger
 from knack.cli import CLIError
-from urllib3.exceptions import NewConnectionError, MaxRetryError
+from colorama import Fore
 
 import json
 import os
+from msrestazure.tools import is_valid_resource_id
 import yaml
-import time
 import shutil
 
 logger = get_logger(__name__)
 
-CONNECTION_RETRY_ATTEMPTS = 12
-RETRY_INTERVAL = 5
-
 
 def dc_create(
     client,
-    namespace,
     name,
     connectivity_mode,
     resource_group,
@@ -135,248 +69,195 @@ def dc_create(
     service_labels=None,
     storage_labels=None,
     storage_annotations=None,
+    no_wait=False,
+    # -- direct --
+    custom_location=None,
+    auto_upload_metrics=None,
+    auto_upload_logs=None,
+    # -- indirect --
+    namespace=None,
+    logs_ui_public_key_file=None,
+    logs_ui_private_key_file=None,
+    metrics_ui_public_key_file=None,
+    metrics_ui_private_key_file=None,
     use_k8s=None,
 ):
-    """
-    If an argument is not provided, the user will be prompted for the needed
-    values NoTTY Scenario: provide a config_profile, profile_name
-    """
     try:
         stdout = client.stdout
-
-        if connectivity_mode.lower() != DIRECT and not use_k8s:
-            raise ValueError(
-                "For indirect connectivity mode, please include "
-                "the [--use-k8s] argument."
-            )
-
-        subscription = client.subscription or prompt_assert("Subscription: ")
-        stdout("\nUsing subscription '{}'.".format(subscription))
-
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-        namespace = namespace or client.namespace
-
-        # Validate params
-        validate_dc_create_params(
-            name,
-            namespace,
-            subscription,
-            location,
-            resource_group,
-            connectivity_mode,
-            infrastructure,
-            profile_name,
-            path,
-        )
-
-        # For direct connectivity mode disable dc creation
-        if connectivity_mode.lower() == DIRECT:
-            raise ArcError(
-                "Only indirect connectivity mode is allowed. "
-                "Please use the Azure Portal to deploy Arc data controller in "
-                "direct connectivity mode."
-            )
-
-        # Get infrastructure if needed.
-        if infrastructure == INFRASTRUCTURE_AUTO:
-            infrastructure = _detect_or_prompt_infrastructure(client)
-
-        #  -- User entered an existing configuration type
-        if profile_name:
-            path = os.path.join(CONFIG_DIR, profile_name)
-            if not os.path.isdir(path):
-                raise ValueError(
-                    "Profile name {0} does not exist.".format(
-                        os.path.basename(profile_name)
-                    )
-                )
-
-        if labels:
-            try:
-                stdout("labels set {}", labels)
-                parse_labels(labels)
-            except ValueError as e:
-                raise CLIError("Labels invalid: {}", e)
-
-        if annotations:
-            try:
-                stdout("annotations set {}", annotations)
-                parse_labels(annotations)
-            except ValueError as e:
-                raise CLIError("Annotations invalid: {}", e)
-
-        if service_labels:
-            try:
-                parse_labels(service_labels)
-            except ValueError as e:
-                raise CLIError("Service labels invalid: {}", e)
-
-        if service_annotations:
-            try:
-                parse_labels(service_annotations)
-            except ValueError as e:
-                raise CLIError("Service annotations invalid: {}", e)
-
-        if storage_labels:
-            try:
-                parse_labels(storage_labels)
-            except ValueError as e:
-                raise CLIError("Storage labels invalid: {}", e)
-
-        if storage_annotations:
-            try:
-                parse_labels(storage_annotations)
-            except ValueError as e:
-                raise CLIError("Storage annotations invalid: {}", e)
-
-        # -- Configuration Directory --
-        if not path:
-            profiles = DeploymentConfigUtil.get_config_map(CONFIG_DIR)
+        if not path and not profile_name:
+            from azext_arcdata.kubernetes_sdk.dc.constants import CONFIG_DIR
 
             # Prompt the user for a choice between configs
             stdout("Please choose a deployment configuration: ")
             stdout(
-                "To see more info please exit create and use command "
-                "[arcdata dc config list -c <config_profile>]"
-            )
-            choices = DeploymentConfigUtil.get_config_display_names(profiles)
-            # Filter out test profiles
-            filtered_choices = list(filter(lambda c: "test" not in c, choices))
-            result = prompt_for_choice(filtered_choices, choices[8])
-
-            path = os.path.join(CONFIG_DIR, profiles[result.lower()])
-
-        # -- Required Environment Variables --
-        """
-        if sys.stdin.isatty():
-            read_environment_variables(ARC_NAME, True)
-        else:
-            check_environment_variables(ARC_NAME)
-        """
-
-        # -- Read json into python dictionary --
-        config_object = read_config(path, CONTROL_CONFIG_FILENAME)
-
-        # If no infrastructure parameter was provided, try to get it from the file
-        if infrastructure is None:
-            infrastructure = _get_infrastructure_from_file_or_auto(
-                client, config_object
+                "To see more information please exit and use command:\n "
+                "az arcdata dc config list -c <config_profile>"
             )
 
-        dc_cr = CustomResource.decode(
-            DataControllerCustomResource, config_object
+            config_dir = client.services.dc.get_deployment_config_dir()
+            choices = client.services.dc.list_configs()
+            profile = prompt_for_choice(choices, default=choices[7]).lower()
+            path = os.path.join(config_dir, profile)
+            logger.debug("Profile path: %s", path)
+
+        # -- Apply Subscription --
+        subscription = client.subscription or prompt_assert("Subscription: ")
+        stdout("\nUsing subscription '{}'.\n".format(subscription))
+
+        # -- Apply Configuration Directory --
+        cvo = client.args_to_command_value_object(
+            {
+                "name": name,
+                "connectivity_mode": connectivity_mode,
+                "resource_group": resource_group,
+                "location": location,
+                "profile_name": profile_name,
+                "path": path,
+                "storage_class": storage_class,
+                "infrastructure": infrastructure,
+                "labels": labels,
+                "annotations": annotations,
+                "service_annotations": service_annotations,
+                "service_labels": service_labels,
+                "storage_labels": storage_labels,
+                "storage_annotations": storage_annotations,
+                "logs_ui_public_key_file": logs_ui_public_key_file,
+                "logs_ui_private_key_file": logs_ui_private_key_file,
+                "metrics_ui_public_key_file": metrics_ui_public_key_file,
+                "metrics_ui_private_key_file": metrics_ui_private_key_file,
+                "subscription": subscription,
+                "custom_location": custom_location,
+                "auto_upload_metrics": auto_upload_metrics,
+                "auto_upload_logs": auto_upload_logs,
+                "namespace": namespace,
+                "no_wait": no_wait,
+            }
         )
-        args = locals()
-        dc_cr.apply_args(**args)
 
-        dc_encoding = dc_cr.encode()
-        # -- Get help documentation for missing values --
-        help_object = read_config(HELP_DIR, CONTROL_CONFIG_FILENAME)
-        # -- Check for missing values in the config object --
-        check_missing(
-            stdout, False, dc_encoding, help_object, CONTROL_CONFIG_FILENAME
+        return client.services.dc.create(cvo)
+
+    except (NoTTYException, ValueError, Exception) as e:
+        raise CLIError(e)
+
+
+def dc_update(
+    client,
+    name,
+    resource_group_name,
+    auto_upload_logs=None,
+    auto_upload_metrics=None,
+):
+    """
+    Update data controller properties.
+    """
+
+    # validate as much as possible before processing anything
+    """
+    _validate_dc_update_params(
+        name,
+        resource_group_name,
+        auto_upload_logs,
+        auto_upload_metrics,
+    )
+    """
+
+    # get dc resource from Azure
+    dc_resource = client.azure_resource_client.get_generic_azure_resource(
+        subscription=client.subscription,
+        resource_group_name=resource_group_name,
+        resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
+        resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
+        resource_name=name,
+        api_version=API_VERSION,
+    )
+
+    is_dc_directly_connected = _is_dc_directly_connected(dc_resource)
+
+    if auto_upload_logs is not None:
+        if not is_dc_directly_connected:
+            raise ValidationError(
+                "Automatic upload of logs is only supported for data "
+                "controllers in direct connectivity mode"
+            )
+
+        _update_auto_upload_logs(dc_resource, auto_upload_logs, client)
+
+    if auto_upload_metrics is not None:
+        if not is_dc_directly_connected:
+            raise ValidationError(
+                "Automatic upload of metrics is only supported for data "
+                "controllers in direct connectivity mode"
+            )
+
+        _update_auto_upload_metrics(
+            dc_resource, resource_group_name, auto_upload_metrics, client
         )
-        # -- Check if dc config is valid
-        # control_config_check(stdout, dc_encoding)
-        control_config_check(dc_encoding)
 
-        # Rehydrate from config object which might have been updated from
-        # prompts by check_missing
-        dc_cr = CustomResource.decode(DataControllerCustomResource, dc_encoding)
+    # update dc Azure resource
+    response = (
+        client.azure_resource_client.create_or_update_generic_azure_resource(
+            subscription=client.subscription,
+            resource_group_name=resource_group_name,
+            resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
+            resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
+            resource_name=name,
+            api_version=API_VERSION,
+            parameters=dc_resource,
+            wait_for_response=False,
+        )
+    )
 
-        annotations = {
-            "openshift.io/sa.scc.supplemental-groups": "1000700001/10000",
-            "openshift.io/sa.scc.uid-range": "1000700001/10000"
-        }
+    return response
 
-        # prepare the namespace
-        create_namespace_with_retry(
-            dc_cr.metadata.namespace, ARC_NAMESPACE_LABEL, annotations
+
+def dc_upgrade(
+    client,
+    namespace=None,
+    target=None,
+    dry_run=None,
+    use_k8s=None,
+    resource_group=None,
+    name=None,
+    nowait=False,
+):
+    try:
+        cvo = client.args_to_command_value_object(
+            {
+                "namespace": namespace,
+                "target": target,
+                "dry_run": dry_run,
+                "no_wait": nowait,
+                "name": name,
+                "resource_group": resource_group,
+            }
+        )
+        client.services.dc.upgrade(cvo)
+    except Exception as e:
+        raise CLIError(e)
+
+
+def dc_list_upgrade(client, namespace, use_k8s=None):
+    stdout = client.stdout
+    try:
+        cvo = client.args_to_command_value_object(
+            {"namespace": namespace, "use_k8s": use_k8s}
+        )
+        current_version, versions = client.services.dc.list_upgrades(cvo)
+
+        stdout(
+            "Found {0} valid versions.  The current datacontroller version is "
+            "{1}.".format(len(versions), current_version)
         )
 
-        crd_files = [
-            POSTGRES_CRD,
-            SQLMI_CRD,
-            SQLMI_RESTORE_TASK_CRD,
-            EXPORT_TASK_CRD,
-            DAG_CRD,
-            MONITOR_CRD,
-            DATA_CONTROLLER_CRD,
-        ]
-
-        # Create the control plane CRD if it doesn't already exist
-        for crd_file in crd_files:
-            with open(crd_file, "r") as stream:
-                temp = yaml.safe_load(stream)
-                crd = CustomResourceDefinition(temp)
-                retry(
-                    lambda: client.apis.kubernetes.create_or_replace_custom_resource_definition(
-                        crd
-                    ),
-                    retry_count=CONNECTION_RETRY_ATTEMPTS,
-                    retry_delay=RETRY_INTERVAL,
-                    retry_method="create custom resource definition",
-                    retry_on_exceptions=(
-                        NewConnectionError,
-                        MaxRetryError,
-                        K8sApiException,
-                    ),
+        for version in versions:
+            if version == current_version:
+                stdout(
+                    "{0} << current version".format(version),
+                    color=Fore.LIGHTGREEN_EX,
                 )
-
-        # Create cluster role for metricsdc
-        client.create_cluster_role_for_monitoring(dc_cr, namespace)
-
-        # Create cluster role for data controller
-        client.create_cluster_role_for_data_controller(namespace)
-
-        # -- attempt to create cluster --
-        stdout("")
-        stdout("Deploying data controller")
-        stdout("")
-        stdout(
-            "NOTE: Data controller creation can take a significant amount of "
-            "time depending on"
-        )
-        stdout(
-            "configuration, network speed, and the number of nodes in the "
-            "cluster."
-        )
-        stdout("")
-
-        response, deployed_cr = client.dc_create(crd, dc_cr)
-
-        while not kubernetes_util.is_instance_ready(deployed_cr):
-            time.sleep(5)
-            logger.info("Data controller service is not ready yet.")
-
-            response = retry(
-                lambda: client.apis.kubernetes.get_namespaced_custom_object(
-                    dc_cr.metadata.name,
-                    dc_cr.metadata.namespace,
-                    group=ARC_GROUP,
-                    version=DATA_CONTROLLER_CRD_VERSION,
-                    plural=DATA_CONTROLLER_PLURAL,
-                ),
-                retry_count=CONNECTION_RETRY_ATTEMPTS,
-                retry_delay=RETRY_INTERVAL,
-                retry_method="get namespaced custom object",
-                retry_on_exceptions=(
-                    NewConnectionError,
-                    MaxRetryError,
-                    KubernetesError,
-                ),
-            )
-
-            deployed_cr = CustomResource.decode(
-                DataControllerCustomResource, response
-            )
-        stdout("Data controller successfully deployed.")
-    except NoTTYException:
-        raise CLIError(
-            "Please specify --profile-name or --path in non-interactive mode."
-        )
-    except (ValueError, ArcError, Exception) as e:
+            else:
+                stdout(version)
+    except Exception as e:
         raise CLIError(e)
 
 
@@ -385,54 +266,36 @@ def dc_endpoint_list(client, namespace, endpoint_name=None, use_k8s=None):
     Retrieves the endpoints of the cluster
     """
     try:
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
-        return client.monitor_endpoint_list(namespace, endpoint_name)
+        cvo = client.args_to_command_value_object(
+            {"namespace": namespace, "endpoint_name": endpoint_name}
+        )
+        return client.services.dc.list_endpoints(cvo)
     except Exception as e:
         raise CLIError(e)
 
 
-def dc_status_show(client, namespace=None, use_k8s=None):
+def dc_status_show(
+    client, name=None, resource_group=None, namespace=None, use_k8s=None
+):
     """
     Return the status of the data controller custom resource.
     """
+
     try:
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-        namespace = namespace or client.namespace
-
-        response = client.apis.kubernetes.list_namespaced_custom_object(
-            namespace,
-            group=ARC_GROUP,
-            version=DATA_CONTROLLER_CRD_VERSION,
-            plural=DATA_CONTROLLER_PLURAL,
+        cvo = client.args_to_command_value_object(
+            {
+                "name": name,
+                "resource_group": resource_group,
+                "namespace": namespace,
+            }
         )
+        state = client.services.dc.get_status(cvo)
 
-        dcs = response.get("items")
-
-        if not dcs:
-            client.stdout(
-                "No data controller exists in Kubernetes namespace `{}`.".format(
-                    namespace
-                )
-            )
+        if use_k8s:
+            client.stdout(state.lower().capitalize())
         else:
-            cr = CustomResource.decode(DataControllerCustomResource, dcs[0])
-
-            state = cr.status.state
-            if state:
-                client.stdout(state.lower().capitalize())
-            else:
-                client.stderr(
-                    "Status unavailable for data controller `{0}` in Kubernetes namespace "
-                    "`{1}`.".format(cr.metadata.name, namespace)
-                )
-
-    except Exception as e:
+            return state
+    except (ValueError, Exception) as e:
         raise CLIError(e)
 
 
@@ -441,42 +304,27 @@ def dc_config_show(client, namespace=None, use_k8s=None):
     Return the config of the data controller custom resource.
     """
     try:
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-        namespace = namespace or client.namespace
-
-        response = client.apis.kubernetes.list_namespaced_custom_object(
-            namespace,
-            group=ARC_GROUP,
-            version=DATA_CONTROLLER_CRD_VERSION,
-            plural=DATA_CONTROLLER_PLURAL,
-        )
-
-        dcs = response.get("items")
-
-        if not dcs:
-            client.stdout(
-                "No data controller exists in Kubernetes namespace `{}`.".format(
-                    namespace
-                )
-            )
-        else:
-            return dcs[0]
-
+        cvo = client.args_to_command_value_object({"namespace": namespace})
+        return client.services.dc.get_config(cvo)
     except Exception as e:
         raise CLIError(e)
 
 
-def dc_delete(client, name, namespace, force=None, yes=None):
+def dc_delete(
+    client,
+    name,
+    namespace=None,
+    resource_group=None,
+    force=None,
+    yes=None,
+    use_k8s=None,
+    no_wait=False,
+):
     """
-    Deletes the data controller - requires kube config and env var
+    Deletes the data controller.
     """
     try:
         stdout = client.stdout
-        namespace = namespace or client.namespace
 
         if not yes:
             stdout("")
@@ -498,107 +346,23 @@ def dc_delete(client, name, namespace, force=None, yes=None):
             )
 
         if yes != "yes" and yes is not True:
-            msg = "Data controller not deleted. Exiting..."
-            return msg
+            stdout("Data controller not deleted. Exiting...")
+            return
 
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-
-        # -- Check existence of data controller --
-        if not client.apis.kubernetes.namespaced_custom_object_exists(
-            name,
-            namespace,
-            group=ARC_GROUP,
-            version=DATA_CONTROLLER_CRD_VERSION,
-            plural=DATA_CONTROLLER_PLURAL,
-        ):
-            raise CLIError(
-                "Data controller `{}` does not exist in Kubernetes namespace `{}`.".format(
-                    name, namespace
-                )
-            )
-
-        # -- Check that connectivity mode is indirect --
-        connection_mode = client.get_data_controller(namespace).get(
-            "connectionMode"
+        cvo = client.args_to_command_value_object(
+            {
+                "name": name,
+                "resource_group": resource_group,
+                "namespace": namespace,
+                "force": force,
+                "no_wait": no_wait,
+            }
         )
-
-        if connection_mode == DIRECT:
-            raise ArcError(
-                "Performing this action from az using the --use-k8s parameter is only allowed using "
-                "indirect mode. Please use the Azure Portal to perform this "
-                "action in direct connectivity mode."
-            )
-
-        # -- Calculate usage at time of deletion --
-        client.calculate_usage(namespace=namespace, exclude_curr_period=False)
-
-        # -- Check existence of data services --
-        crd_files = [POSTGRES_CRD, SQLMI_CRD]
-
-        for crd_file in crd_files:
-            # Create the control plane CRD if it doesn't already exist
-            with open(crd_file, "r") as stream:
-                temp = yaml.safe_load(stream)
-                crd = CustomResourceDefinition(temp)
-                cr_list = client.apis.kubernetes.list_namespaced_custom_object(
-                    namespace, crd=crd
-                )
-                if cr_list["items"]:
-                    if not force:
-                        raise ArcError(
-                            "Instances of `{}` are deployed. Cannot delete "
-                            "data controller `{}`. Please delete these "
-                            "instances before deleting the data controller or "
-                            "use --force.".format(crd.kind, name)
-                        )
-                    else:
-                        stdout("Deleting instances of `{}`.".format(crd.kind))
-                        for item in cr_list["items"]:
-                            cr_name = item["metadata"]["name"]
-                            client.apis.kubernetes.delete_namespaced_custom_object(
-                                name=cr_name, namespace=namespace, crd=crd
-                            )
-                            stdout("`{}` deleted.".format(cr_name))
-
-        stdout("Exporting the remaining resource usage information...")
-
-        usage_file_name = LAST_BILLING_USAGE_FILE.format(name)
-        # TODO: dc_export(client, "usage", usage_file_name, namespace, force=True)
-
-        usage_file_created = os.path.exists(usage_file_name)
-
-        if usage_file_created:
-            add_last_upload_flag(usage_file_name)
-            stdout(
-                "Please run 'az arcdata arc dc upload -p {}' to complete the "
-                "deletion of data controller {}.".format(usage_file_name, name)
-            )
-
-        stdout("Deleting data controller `{}`.".format(name))
-
-        # -- attempt to delete cluster --
-        client.dc_delete(namespace, name)
-
-        # Delete the monitor and control plane CRD
-        crd_files = [MONITOR_CRD, DATA_CONTROLLER_CRD]
-
-        for crd_file in crd_files:
-            with open(crd_file, "r") as stream:
-                temp = yaml.safe_load(stream)
-                crd = CustomResourceDefinition(temp)
-                client.apis.kubernetes.delete_custom_resource_definition(crd)
+        client.services.dc.delete(cvo)
 
         stdout("Data controller `{}` deleted successfully.".format(name))
-
     except NoTTYException:
         raise CLIError("Please specify `--yes` in non-interactive mode.")
-    except ArcError as e:
-        raise CLIError(e)
-    except KubernetesError as e:
-        raise CLIError(e)
-    except K8sApiException as e:
-        raise CLIError(e)
     except Exception as e:
         raise CLIError(e)
 
@@ -608,16 +372,8 @@ def dc_config_list(client, config_profile=None):
     Lists available configuration file choices.
     """
     try:
-        configs = DeploymentConfigUtil.config_list(CONFIG_DIR, config_profile)
-
-        # Filter out test profiles
-        filtered_configs = list(filter(lambda c: "test" not in c, configs))
-
-        return filtered_configs
-
-    except ValueError as e:
-        raise CLIError(e)
-    except Exception as e:
+        return client.services.dc.list_configs(config_profile)
+    except (ValueError, Exception) as e:
         raise CLIError(e)
 
 
@@ -626,6 +382,10 @@ def dc_config_init(client, path=None, source=None, force=None):
     Initializes a cluster configuration file for the user.
     """
     try:
+        stdout = client.stdout
+        config_dir = client.services.dc.get_deployment_config_dir()
+        config_files = client.services.dc.get_deployment_config_files()
+
         try:
             if not path:
                 path = prompt_for_input(
@@ -635,10 +395,8 @@ def dc_config_init(client, path=None, source=None, force=None):
             # If non-interactive, default to custom directory
             path = "custom"
 
-        stdout = client.stdout
-
         # Read the available configs by name
-        config_map = DeploymentConfigUtil.get_config_map(CONFIG_DIR)
+        config_map = DeploymentConfigUtil.get_config_map(config_dir)
 
         if source:
             if source not in config_map.keys():
@@ -664,16 +422,13 @@ def dc_config_init(client, path=None, source=None, force=None):
             )
 
         result = DeploymentConfigUtil.save_config_profile(
-            path, source, CONFIG_DIR, CONFIG_FILES, config_map, force
+            path, source, config_dir, config_files, config_map, force
         )
 
         client.stdout("Created configuration profile in {}".format(result))
-
-    except ValueError as e:
-        raise CLIError(e)
     except NoTTYException:
         raise CLIError("Please specify path and source in non-interactive mode")
-    except Exception as e:
+    except (ValueError, Exception) as e:
         raise CLIError(e)
 
 
@@ -741,33 +496,25 @@ def dc_debug_copy_logs(
     skip_compress=False,
     exclude_dumps=False,
     exclude_system_logs=False,
-    use_k8s=None,
+    use_k8s=None,  # not used
 ):
     """
     Copy Logs commands - requires kube config
     """
     try:
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-        namespace = namespace or client.namespace
-
-        copy_debug_logs(
+        client.services.dc.copy_logs(
             namespace,
-            target_folder,
-            pod,
-            container,
-            resource_kind,
-            resource_name,
-            timeout,
-            skip_compress,
-            exclude_dumps,
-            exclude_system_logs,
+            target_folder=target_folder,
+            pod=pod,
+            container=container,
+            resource_kind=resource_kind,
+            resource_name=resource_name,
+            timeout=timeout,
+            skip_compress=skip_compress,
+            exclude_dumps=exclude_dumps,
+            exclude_system_logs=exclude_system_logs,
         )
-
-    except (ArcError, NotImplementedError, Exception) as e:
+    except Exception as e:
         raise CLIError(e)
 
 
@@ -776,36 +523,17 @@ def dc_debug_dump(
     namespace,
     container="controller",
     target_folder="./output/dump",
-    use_k8s=None,
+    use_k8s=None,  # not used
 ):
     """
     Trigger dump for given container and copy out the dump file to given
     output folder
     """
     try:
-        # The following error is misleading. All the framework, functions,
-        # etc. to perform dump are in place and were working at the time I
-        # wrote this comment--except they are not adjusted to the new non-root
-        # world, where CAP_SYS_PTRACE needs to be enabled in order to get a
-        # core dump. So the shell script that gets called in the controller
-        # pod does nothing useful.
-        #
-        # Therefore, disabling the dump call until we can figure out
-        # how we want to handle this. -safeitle, 07/21/2021
-        #
-        raise NotImplementedError(
-            "'az arcdata dc debug dump' currently not "
-            "implemented in this release. "
+        client.services.dc.capture_debug_dump(
+            namespace, container, target_folder
         )
-
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-        # -- Check Kubectl Context --
-        check_and_set_kubectl_context()
-        namespace = namespace or client.namespace
-
-        take_dump(namespace, container, target_folder)
-    except (ArcError, NotImplementedError, Exception) as e:
+    except (NotImplementedError, Exception) as e:
         raise CLIError(e)
 
 
@@ -813,23 +541,7 @@ def dc_export(client, export_type, path, namespace, force=None, use_k8s=None):
     """
     Export metrics, logs or usage to a file.
     """
-    from datetime import datetime, timedelta
-
-    stdout = client.stdout
-    cluster_name = namespace or client.namespace
-
-    info_msg = (
-        'This option exports {} of all instances in "{}" to the file: "{}".'
-    )
-
-    # -- Check Kubectl Context --
-    check_and_set_kubectl_context()
-
     try:
-
-        if not use_k8s:
-            raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
         if export_type.lower() not in ExportType.list():
             raise ValueError(
                 "{} is not a supported type. "
@@ -838,224 +550,78 @@ def dc_export(client, export_type, path, namespace, force=None, use_k8s=None):
                 )
             )
 
-        path = _check_prompt_export_output_file(path, force)
-        data_controller = client.get_data_controller(cluster_name)
+        path = check_prompt_export_output_file(path, force)
 
-        content = {
-            "exportType": export_type,
-            "dataController": data_controller,
-            "dataTimestamp": datetime.now().isoformat(
-                sep=" ", timespec="milliseconds"
-            ),
-            "instances": [],
-            "data": [],
-        }
-
-        if (
-            data_controller["connectionMode"].lower()
-            == azure_constants.DIRECT_CONNECTIVITY_MODE
-        ):
-            raise ValueError(
-                "Export is not supported for direct connectivity mode."
-            )
-
-        # Create export custom resource
-        # Get startTime and endTime of export
-        end_time = datetime.utcnow()
-        start_time = get_export_timestamp(export_type)
-        export_cr_name = "export-{}-{}".format(
-            export_type,
-            end_time.strftime("%Y-%m-%d-%H-%M-%S")
-            + "-"
-            + str(time_ns() // 1000000),
-        )
-
-        with open(EXPORT_TASK_CRD, "r") as stream:
-            temp = yaml.safe_load(stream)
-            crd = CustomResourceDefinition(temp)
-
-            spec_object = {
-                "apiVersion": crd.group + "/" + crd.stored_version,
-                "kind": crd.kind,
-                "metadata": {
-                    "name": export_cr_name,
-                    # "namespace": client.profile.active_context.namespace,
-                    "namespace": cluster_name,
-                },
-                "spec": {
-                    "exportType": export_type,
-                    "startTime": start_time,
-                    "endTime": end_time,
-                },
-            }
-
-            cr = CustomResource.decode(ExportTaskCustomResource, spec_object)
-            cr.validate(client.apis.kubernetes)
-
-            response = retry(
-                lambda: client.apis.kubernetes.create_namespaced_custom_object_with_body(
-                    spec_object, cr=cr, plural=crd.plural, ignore_conflict=True
-                ),
-                retry_count=CONNECTION_RETRY_ATTEMPTS,
-                retry_delay=RETRY_INTERVAL,
-                retry_method="create namespaced custom object",
-                retry_on_exceptions=(
-                    NewConnectionError,
-                    MaxRetryError,
-                    KubernetesError,
-                ),
-            )
-
-            if response:
-                client.stdout(
-                    "Export custom resource: {} is created.".format(
-                        export_cr_name
-                    )
-                )
-            else:
-                raise CLIError(
-                    "Failed to create export custom resource: {}".format(
-                        export_cr_name
-                    )
-                )
-
-            index_file_path = _get_export_task_file_path(
-                client, export_cr_name, namespace
-            )
-
-            if (
-                index_file_path == "No data are exported"
-                or index_file_path is None
-            ):
-                raise CLIError("No data are exported.")
-
-            controller_endpoint = client.apis.controller.get_endpoint(namespace)
-
-            # Get download path
-            index_file = retry(
-                client.apis.controller.get_export_file_path,
-                index_file_path,
-                controller_endpoint,
-                retry_count=CONNECTION_RETRY_ATTEMPTS,
-                retry_delay=RETRY_INTERVAL,
-                retry_method="download index file",
-                retry_on_exceptions=(NewConnectionError, MaxRetryError),
-            )
-
-            index_file_json = index_file
-
-            data_controller["publicKey"] = index_file_json[
-                "publicSigningCertificate"
-            ]
-            content["dataTimestamp"] = index_file_json["endTime"]
-
-            instances = client.list_all_custom_resource_instances(cluster_name)
-            content["instances"] = instances
-
-            active_instances = dict.fromkeys(
-                map(
-                    lambda x: "{}/{}.{}".format(
-                        x["kind"], x["instanceName"], x["instanceNamespace"]
-                    ),
-                    instances,
-                )
-            )
-
-            deleted_instances = index_file_json["customResourceDeletionList"]
-
-            # Ignored instances which were deleted but subsequently recreated,
-            # as their will be updated
-            content["deletedInstances"] = list(
-                filter(
-                    lambda x: "{}/{}.{}".format(
-                        x["kind"], x["instanceName"], x["instanceNamespace"]
-                    )
-                    not in active_instances.keys(),
-                    deleted_instances,
-                )
-            )
-
-            stdout(info_msg.format(export_type, cluster_name, path))
-
-            if (
-                export_type.lower() == ExportType.metrics.value
-                or export_type.lower() == ExportType.usage.value
-            ):
-                file = retry(
-                    client.apis.controller.get_export_file_path,
-                    index_file_json["dataFilePathList"][0],
-                    controller_endpoint,
-                    retry_count=CONNECTION_RETRY_ATTEMPTS,
-                    retry_delay=RETRY_INTERVAL,
-                    retry_method="download data file",
-                    retry_on_exceptions=(NewConnectionError, MaxRetryError),
-                )
-
-                if file:
-                    content["data"] = file
-                    write_output_file(path, content)
-                    stdout("{0} are exported to {1}".format(export_type, path))
-                else:
-                    allowNodeMetricsCollection = content["dataController"][
-                        "k8sRaw"
-                    ]["spec"]["security"]["allowNodeMetricsCollection"]
-                    allowPodMetricsCollection = content["dataController"][
-                        "k8sRaw"
-                    ]["spec"]["security"]["allowPodMetricsCollection"]
-                    if (
-                        not allowNodeMetricsCollection
-                        or not allowPodMetricsCollection
-                    ):
-                        stdout(
-                            "There are no metrics available for export. "
-                            "Please follow the documentation to ensure that "
-                            "allowNodeMetricsCollection and/or "
-                            "allowPodMetricsCollection are set to true to "
-                            "collect metrics and then export them."
-                        )
-                    else:
-                        stdout(
-                            "Failed to get metrics. "
-                            "Please ensure you connect to the correct cluster "
-                            "and the instances have metrics."
-                        )
-            elif export_type.lower() == ExportType.logs.value:
-                file_index = 0
-                data_files = []
-                for data_file_path in index_file_json["dataFilePathList"]:
-                    file = retry(
-                        client.apis.controller.get_export_file_path,
-                        data_file_path,
-                        controller_endpoint,
-                        retry_count=CONNECTION_RETRY_ATTEMPTS,
-                        retry_delay=RETRY_INTERVAL,
-                        retry_method="download data file",
-                        retry_on_exceptions=(NewConnectionError, MaxRetryError),
-                    )
-
-                    if file:
-                        data = file
-                        file_path = generate_export_file_name(path, file_index)
-                        write_file(
-                            file_path,
-                            data,
-                            export_type,
-                            index_file_json["endTime"],
-                        )
-                        file_index += 1
-                        data_files.append(file_path)
-
-                if len(data_files) > 0:
-                    content["data"] = data_files
-                    write_output_file(path, content)
-                    stdout("{0} are exported to {1}".format(export_type, path))
-                else:
-                    stdout("No log is exported.")
-
+        client.services.dc.export(namespace, export_type, path)
     except NoTTYException:
         raise CLIError("Please specify `--force` in non-interactive mode.")
     except Exception as e:
         raise CLIError(e)
+
+
+def arc_resource_kind_list(client):
+    """
+    Returns the list of available arc resource kinds which can be created in
+    the cluster.
+    """
+    try:
+        crd_file_dict = client.services.dc.get_crd_file_dict()
+        named_path_dict = crd_file_dict.copy()
+        return list(named_path_dict.keys())
+    except Exception as e:
+        raise CLIError(e)
+
+
+def arc_resource_kind_get(client, kind, dest="template"):
+    """
+    Returns a package of crd.json and spec-template.json based on the given
+    kind.
+    """
+    try:
+        if not os.path.isdir(dest):
+            os.makedirs(dest, exist_ok=True)
+
+        crd_file_dict = client.services.dc.get_crd_file_dict()
+        spec_file_dict = client.services.dc.get_spec_file_dict()
+
+        # Make the resource name case insensitive
+        local_crd_file_dict = {k.lower(): v for k, v in crd_file_dict.items()}
+        local_spec_file_dict = {k.lower(): v for k, v in spec_file_dict.items()}
+        kind_lower_case = kind.lower()
+
+        if (
+            kind_lower_case not in local_crd_file_dict
+            or kind_lower_case not in local_spec_file_dict
+        ):
+            raise ValueError(
+                "Invalid input kind. Pleae check resource kind list."
+            )
+
+        # crd in .yaml format and spec in .json format
+        crd_file_path = local_crd_file_dict[kind_lower_case]
+        spec_file_path = local_spec_file_dict[kind_lower_case]
+
+        # Create the control plane CRD for the input kind.
+        with open(crd_file_path, "r") as stream:
+            crd = yaml.safe_load(stream)
+            crd_pretty = json.dumps(crd, indent=4)
+            with open(os.path.join(dest, "crd.json"), "w") as output:
+                output.write(crd_pretty)
+
+        # Copy spec.json template to the new path
+        shutil.copy(spec_file_path, os.path.join(dest, "spec.json"))
+
+        client.stdout(
+            "{0} template created in directory: {1}".format(kind, dest)
+        )
+
+    except (ValueError, Exception) as e:
+        raise CLIError(e)
+
+
+##############################
+# Azure / indirect only
+##############################
 
 
 def dc_upload(client, path):
@@ -1220,189 +786,124 @@ def dc_upload(client, path):
         )
 
 
-def arc_resource_kind_list(client):
+def _is_dc_directly_connected(dc):
     """
-    Returns the list of available arc resource kinds which can be created in
-    the cluster.
+    Return True if dc is directly connected mode. False otherwise.
+    (this is determined by checking at the extended_location, "ConnectionMode"
+    property is ignored, this is the same logic performed in the RP)
     """
-    try:
-        namd_path_dict = CRD_FILE_DICT.copy();
-        return list(namd_path_dict.keys())
-    except Exception as e:
-        raise CLIError(e)
+
+    if dc.extended_location is None:
+        return False
+
+    if dc.extended_location.type.lower() != "customlocation":
+        return False
+
+    return True
 
 
-def arc_resource_kind_get(client, kind, dest="template"):
+def _update_auto_upload_logs(dc, auto_upload_logs, client):
+
     """
-    Returns a package of crd.json and spec-template.json based on the given
-    kind.
+    Update auto upload logs properties. This includes asking for the
+    log analytics workspace id/key if needed.
+    :param dc: The data controller. The updated properties are changed on this
+               object.
+    :param auto_upload_logs: "true"/"false" (string, not boolean) indicating
+    whether or not to enable auto upload.
     """
-    try:
-        if not os.path.isdir(dest):
-            os.makedirs(dest, exist_ok=True)
 
-        # Make the resource name case insensitive
-        local_crd_file_dict = {k.lower() : v for k,v in CRD_FILE_DICT.items()}
-        local_spec_file_dict = {k.lower() : v for k,v in SPEC_FILE_DICT.items()}
-        kind_lower_case = kind.lower()
+    dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
+        "autoUploadLogs"
+    ] = auto_upload_logs
 
-        if kind_lower_case not in local_crd_file_dict or kind_lower_case not in local_spec_file_dict:
-            raise ValueError("Invalid input kind. Pleae check resource kind list.")
+    if auto_upload_logs == "false":
+        dc.properties["logAnalyticsWorkspaceConfig"] = None
+        return
 
-        # crd in .yaml format and spec in .json format
-        crd_file_path = local_crd_file_dict[kind_lower_case]
-        spec_file_path = local_spec_file_dict[kind_lower_case]
+    if (
+        "logAnalyticsWorkspaceConfig" not in dc.properties
+        or dc.properties["logAnalyticsWorkspaceConfig"] is None
+    ):
+        dc.properties["logAnalyticsWorkspaceConfig"] = dict()
 
-        # Create the control plane CRD for the input kind.
-        with open(crd_file_path, "r") as stream:
-            crd = yaml.safe_load(stream)
-            crd_pretty = json.dumps(crd, indent=4)
-            with open(os.path.join(dest, "crd.json"), "w") as output:
-                output.write(crd_pretty)
+    (
+        workspace_id,
+        workspace_shared_key,
+    ) = _get_log_workspace_credentials_from_env(client)
 
-        # Copy spec.json template to the new path
-        shutil.copy(spec_file_path, os.path.join(dest, "spec.json"))
+    dc.properties["logAnalyticsWorkspaceConfig"]["workspaceId"] = workspace_id
+    dc.properties["logAnalyticsWorkspaceConfig"][
+        "primaryKey"
+    ] = workspace_shared_key
 
-        client.stdout(
-            "{0} template created in directory: {1}".format(kind, dest)
+
+def _update_auto_upload_metrics(
+    dc, resource_group_name, auto_upload_metrics, client
+):
+    """
+    Update auto upload metrics property. This includes creating the necessary
+    role assignments if needed.
+    :param dc: The data controller. The updated property is changed on this
+               object.
+    :param resource_group_name: The data controller's resource group name.
+    :param auto_upload_metrics: "true"/"false" (string, not boolean) indicating
+    whether or not to enable auto upload.
+    """
+
+    if auto_upload_metrics == "true":
+        assign_metrics_role_if_missing(
+            dc.extended_location.name,
+            resource_group_name,
+            client.azure_resource_client,
         )
 
-    except Exception as e:
-        raise CLIError(e)
+    dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
+        "autoUploadMetrics"
+    ] = auto_upload_metrics
 
 
-def _check_prompt_export_output_file(file_path, force):
+def assign_metrics_role_if_missing(
+    custom_location_id, resource_group_name, azure_resource_client
+):
     """
-    Checks if export output file exists, and prompt if necessary.
+    Assign metrics publisher role to the extension identity.
+    :param custom_location_id: Assign the role to the bootstrapper extension
+           on this custom location.
+    :param resource_group_name: The resource group name.
+    :param azure_resource_client: Azure resource client used to assign the role.
     """
-    # Check if file exists
-    export_file_exists = True
-    overwritten = False
+    metrics_role_description = ROLE_DESCRIPTIONS[
+        MONITORING_METRICS_PUBLISHER_ROLE_ID
+    ]
 
-    while export_file_exists and not overwritten:
-        export_file_exists = os.path.exists(file_path)
-        if not force and export_file_exists:
-            try:
-                yes = prompt_y_n(
-                    "{} exists already, do you want to overwrite it?".format(
-                        file_path
-                    )
-                )
-            except NoTTYException as e:
-                raise NoTTYException(
-                    "{} Please make sure the file does not exist in a"
-                    " non-interactive environment".format(e)
-                )
+    extension_identity_principal_id = (
+        azure_resource_client.get_extension_identity(custom_location_id)
+    )
 
-            overwritten = True if yes else False
+    logger.debug(
+        f"Bootstrapper extension identity (principal id): "
+        f"'{extension_identity_principal_id}'"
+    )
 
-            if overwritten:
-                os.remove(file_path)
-            else:
-                file_path = prompt_for_input(
-                    "Please provide a file name with the path: "
-                )
-                export_file_exists = True
-                overwritten = False
-
-        elif force:
-            overwritten = True
-            if export_file_exists:
-                os.remove(file_path)
-
-    return file_path
-
-
-def _get_export_task_file_path(client, name, namespace):
-    import time
-
-    retry_count = 0
-
-    while retry_count < MAX_POLLING_ATTEMPTS:
-        export_task = retry(
-            lambda: client.apis.kubernetes.get_namespaced_custom_object(
-                name=name,
-                namespace=namespace,
-                group=TASK_API_GROUP,
-                version=EXPORT_TASK_CRD_VERSION,
-                plural=EXPORT_TASK_RESOURCE_KIND_PLURAL,
-            ),
-            retry_count=CONNECTION_RETRY_ATTEMPTS,
-            retry_delay=RETRY_INTERVAL,
-            retry_method="get namespaced custom object",
-            retry_on_exceptions=(NewConnectionError, MaxRetryError),
+    if azure_resource_client.has_role_assignment(
+        extension_identity_principal_id,
+        resource_group_name,
+        MONITORING_METRICS_PUBLISHER_ROLE_ID,
+        metrics_role_description,
+    ):
+        logger.debug(
+            "Bootstrapper extension identity already has metrics publisher role."
+        )
+    else:
+        logger.debug(
+            f"Assigning '{metrics_role_description}' role to bootstrapper "
+            f"extension identity..."
         )
 
-        state = export_task.get("status", {}).get("state")
-        if state is None:
-            retry_count += 1
-            time.sleep(20)
-        else:
-            client.stdout(
-                "Export custom resource: {0} state is {1}".format(name, state)
-            )
-            if state == EXPORT_COMPLETED_STATE:
-                logger.debug(export_task)
-                return export_task.get("status", {}).get("path")
-            else:
-                time.sleep(20)
-
-    raise CLIError("Export custom resource:{0} is not ready.".format(name))
-
-
-def _detect_or_prompt_infrastructure(client):
-    """
-    Try to detect the infrastructure from the node's spec.provider_id. If not possible prompt for it / fail (based on TTY).
-    """
-
-    logger.debug("Trying to detect infrastructure.")
-
-    try:
-        infrastructure = get_kubernetes_infra(client)
-        return infrastructure
-    except ArcError as e:
-        try:
-            logger.info(
-                "Unable to detect infrastructure: %s. Will try to prompt for it.",
-                e,
-            )
-            client.stdout(
-                "Please select the infrastructure for the data controller:"
-            )
-            infrastructure = prompt_for_choice(INFRASTRUCTURE_CR_ALLOWED_VALUES)
-            return infrastructure
-        except NoTTYException:
-            raise CLIError(
-                "Unable to determine the infrastructure for the data controller. Please provide an '--infrastructure' value other than 'auto'."
-            ) from e
-
-
-def _get_infrastructure_from_file(config_object):
-    """
-    Get infrastructure from the confg file. If no "spec.infrastructure" was provided, return None. Otherwise validate it and raise an error if not valid.
-    """
-
-    logger.debug("Looking for infrastructure in control.json")
-
-    try:
-        infra = config_object["spec"]["infrastructure"]
-        logger.debug("Found infrastructure in control.json: %s", infra)
-        validate_infrastructure_value(infra)
-        return infra
-    except KeyError:
-        return None
-
-
-def _get_infrastructure_from_file_or_auto(client, config_object):
-    """
-    Get and validate infrastructure form config_object. If missing, detect or prompt for it.
-    """
-
-    # try to get infrastructure from file
-    infrastructure = _get_infrastructure_from_file(config_object)
-
-    # detect or prompt for it
-    if infrastructure is None:
-        infrastructure = _detect_or_prompt_infrastructure(client)
-
-    return infrastructure
+        azure_resource_client.create_role_assignment(
+            extension_identity_principal_id,
+            resource_group_name,
+            MONITORING_METRICS_PUBLISHER_ROLE_ID,
+            metrics_role_description,
+        )
