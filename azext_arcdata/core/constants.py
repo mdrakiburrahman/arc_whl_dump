@@ -156,6 +156,11 @@ ARC_API_V2 = "v2"
 Defines the kubernetes api version v2 for Arc CRDs.
 """
 
+ARC_API_V3 = "v3"
+"""
+Defines the kubernetes api version v3 for Arc CRDs.
+"""
+
 KUBERNETES_LABEL_PREFIX = "app.kubernetes.io/"
 """
 Defines the prefix for common Kubernetes labels

@@ -117,7 +117,19 @@ MONITOR_CRD_NAME = "monitors.arcdata.microsoft.com"
 Well known name of the monitor crd
 """
 
-ACTIVE_DIRECTORY_CONNECTOR_CRD = os.path.join(TEMPLATE_DIR, "active_directory_connector_crd.yaml")
+KAFKA_CRD = os.path.join(TEMPLATE_DIR, "kafka_crd.yaml")
+"""
+File location for Kafka CRD.
+"""
+
+KAFKA_CRD_NAME = "kafkas.arcdata.microsoft.com"
+"""
+Well known name of the Kafka crd
+"""
+
+ACTIVE_DIRECTORY_CONNECTOR_CRD = os.path.join(
+    TEMPLATE_DIR, "active_directory_connector_crd.yaml"
+)
 """
 File location for active directory connector CRD.
 """
@@ -150,7 +162,9 @@ SQLMI_RESTORE_TASK_CRD = os.path.join(
 File location for sqlmi restore CRD.
 """
 
-SQLMI_RESTORE_TASK_CRD_NAME = "sqlmanagedinstancerestoretasks.tasks.sql.arcdata.microsoft.com"
+SQLMI_RESTORE_TASK_CRD_NAME = (
+    "sqlmanagedinstancerestoretasks.tasks.sql.arcdata.microsoft.com"
+)
 """
 Well known name of the sqlmi-restore-task CRD
 """
@@ -414,6 +428,7 @@ CRD_FILE_DICT = {
     "Dag": DAG_CRD,
     "ActiveDirectoryConnector": ACTIVE_DIRECTORY_CONNECTOR_CRD,
     "Monitor": MONITOR_CRD,
+    "Kafka": KAFKA_CRD,
     "DataController": DATA_CONTROLLER_CRD,
 }
 
@@ -427,7 +442,10 @@ SPEC_FILE_DICT = {
     "DataController": DATA_CONTROLLER_SPEC,
 }
 
-CRD_SUPPORTED_IMAGE_VERSIONS = {ARC_API_V1: ["v1.0.0"], ARC_API_V2: ["v1.1.0", "v1.2.0"]}
+CRD_SUPPORTED_IMAGE_VERSIONS = {
+    ARC_API_V1: ["v1.0.0"],
+    ARC_API_V2: ["v1.1.0", "v1.2.0", "v1.3.0"],
+}
 
 RESOURCE_KIND_DATA_CONTROLLER = "dataController"
 """

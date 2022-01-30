@@ -95,6 +95,8 @@ from azext_arcdata.kubernetes_sdk.dc.constants import (
     HELP_DIR,
     INDIRECT,
     INFRASTRUCTURE_CR_ALLOWED_VALUES,
+    KAFKA_CRD,
+    KAFKA_CRD_NAME,
     LAST_BILLING_USAGE_FILE,
     LOCATION,
     LOGSUI_LOGIN_SECRET_NAME,
@@ -445,7 +447,7 @@ class DataControllerClient(object):
             DAG_CRD,
             ACTIVE_DIRECTORY_CONNECTOR_CRD,
             MONITOR_CRD,
-            DATA_CONTROLLER_CRD,
+            DATA_CONTROLLER_CRD
         ]
 
         # Create the control plane CRD if it doesn't already exist
@@ -2185,21 +2187,7 @@ class DataControllerClient(object):
             raise Exception(
                 "One or more postgres preview instances exist in the cluster and must be deleted prior to upgrading the data controller."
             )
-
-        sql_instances = resolve_sqlmi_instances(namespace)
-
-        if _.some(
-            sql_instances,
-            lambda s: _.get(s, "spec.tier")
-            in [
-                SQLMI_TIER_BUSINESS_CRITICAL,
-                SQLMI_TIER_BUSINESS_CRITICAL_SHORT,
-            ],
-        ):
-            raise Exception(
-                "One or more sql business critical preview instances exist in the cluster and must be deleted prior to upgrading the data controller."
-            )
-
+       
     # ------------------------------------------------------------------------ #
     # Upgrade
     # ------------------------------------------------------------------------ #

@@ -29,6 +29,9 @@ from azext_arcdata.sqlmi.constants import (
     SQLMI_PASSWORD_MIN_LENGTH,
     SQLMI_PASSWORD_REQUIRED_GROUPS,
     SQLMI_TIERS,
+    DAG_ROLES_ALL,
+    DAG_ROLES_CREATE,
+    DAG_ROLES_UPDATE,
 )
 from azext_arcdata.sqlmi.exceptions import SqlmiError
 from knack.cli import CLIError
@@ -237,6 +240,25 @@ def validate_sqlmi_license_type(license_type):
 
     return False
 
+def get_valid_dag_roles(for_create):
+    """
+    Get the valid dag roles
+    """
+    if for_create:
+        return DAG_ROLES_CREATE
+    else:
+        return DAG_ROLES_UPDATE
+
+def validate_dag_roles(role_value, for_create):
+    """
+    returns True if role_value is valid
+    """
+    if role_value is None:
+        return False
+    if role_value.lower() in (t.lower() for t in get_valid_dag_roles(for_create)):
+        return True
+
+    return False
 
 def validate_labels_and_annotations(
     labels,

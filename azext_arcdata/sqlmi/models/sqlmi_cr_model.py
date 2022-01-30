@@ -70,7 +70,6 @@ class SqlmiCustomResource(CustomResource):
         def __init__(
             self,
             replicas: int = 1,
-            forceHA: bool = True,
             serviceType: str = None,
             license_type: str = None,
             tier: str = None,
@@ -79,7 +78,6 @@ class SqlmiCustomResource(CustomResource):
         ):
             super().__init__(*args, **kwargs)
             self.replicas = replicas
-            self.forceHA = forceHA
             self.serviceType = serviceType
             self.scheduling = self.Scheduling()
             self.security = self.Security()
@@ -100,10 +98,6 @@ class SqlmiCustomResource(CustomResource):
             return self._replicas
 
         @property
-        def forceHA(self) -> bool:
-            return self._forceHA
-
-        @property
         def tier(self) -> str:
             """
             The tier. Default to None.
@@ -120,10 +114,6 @@ class SqlmiCustomResource(CustomResource):
         @replicas.setter
         def replicas(self, r: int):
             self._replicas = r
-
-        @forceHA.setter
-        def forceHA(self, f: bool):
-            self._forceHA = f
 
         @tier.setter
         def tier(self, t: str):
@@ -532,8 +522,6 @@ class SqlmiCustomResource(CustomResource):
             super()._hydrate(d)
             if "replicas" in d:
                 self.replicas = d["replicas"]
-            if "forceHA" in d:
-                self.forceHA = d["forceHA"]
             if "serviceType" in d:
                 self.serviceType = d["serviceType"]
             if "security" in d:
@@ -558,7 +546,6 @@ class SqlmiCustomResource(CustomResource):
         def _to_dict(self):
             base = super()._to_dict()
             base["replicas"] = self.replicas
-            base["forceHA"] = self.forceHA
             base["serviceType"] = getattr(self, "serviceType", None)
             base["security"] = self.security._to_dict()
             base["scheduling"] = self.scheduling._to_dict()
@@ -654,6 +641,14 @@ class SqlmiCustomResource(CustomResource):
         def mirroringEndpoint(self, me: str):
             self._mirroringEndpoint = me
 
+        @property
+        def mirroringCertificate(self) -> str:
+            return getattr(self, "_mirroringCertificate", None)
+
+        @mirroringCertificate.setter
+        def mirroringCertificate(self, mc: str):
+            self._mirroringCertificate = mc
+
         def _hydrate(self, d: dict):
             """
             @override
@@ -665,6 +660,8 @@ class SqlmiCustomResource(CustomResource):
                 self.secondaryServiceEndpoint = d["secondaryServiceEndpoint"]
             if "mirroringEndpoint" in d:
                 self.mirroringEndpoint = d["mirroringEndpoint"]
+            if "mirroringCertificate" in d:
+                self.mirroringCertificate = d["mirroringCertificate"]
 
         def _to_dict(self):
             """
@@ -676,6 +673,7 @@ class SqlmiCustomResource(CustomResource):
                 self, "secondaryServiceEndpoint", None
             )
             base["mirroringEndpoint"] = getattr(self, "mirroringEndpoint", None)
+            base["mirroringCertificate"] = getattr(self, "mirroringCertificate", None)
             return base
 
     def _hydrate(self, d: dict):
@@ -722,7 +720,6 @@ class SqlmiCustomResource(CustomResource):
     def apply_args(self, **kwargs):
         super().apply_args(**kwargs)
         self._set_if_provided(self.spec, "replicas", kwargs, "replicas")
-        self._set_if_provided(self.spec, "forceHA", kwargs, "forceHA")
         self._set_if_provided(
             self.spec.scheduling.default.resources.requests,
             "memory",

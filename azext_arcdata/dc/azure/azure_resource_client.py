@@ -394,14 +394,14 @@ class AzureResourceClient(object):
             "https://san-af-{}-prod.azurewebsites.net/api/subscriptions"
             "/{}/resourcegroups/{}/providers"
             "/Microsoft.AzureArcData/dataControllers"
-            "/{}?api-version=2021-08-01".format(
+            "/{}?api-version=2022-01-01".format(
                 location, subscription_id, resource_group_name, name
             )
         )
 
         body = (
             b'{"$schema": "https://microsoft.azuredata.com/azurearc/pipeline'
-            b'/usagerecordsrequest.06-2021.schema.json","blob": "'
+            b'/usagerecordsrequest.01-2022.schema.json","blob": "'
             + data_base64
             + b'"}'
         )

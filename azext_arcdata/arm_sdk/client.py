@@ -4,6 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from typing import Callable
 from .swagger_1_0_0 import AzureArcDataManagementClient
 from .swagger_1_0_0.models import (
     DataControllerResource,
@@ -192,20 +193,20 @@ class ArmClient(object):
             )
 
             if polling:
-                # Setting a total wait time of 600 sec with a step of 5 sec
-                for _ in range(0, 600, 5):
-                    status = self.dc_deployment_completed(resource_group, name)
-                    if status == "Ready":
-                        break
-                    else:
-                        time.sleep(5)
-
-            if self.dc_deployment_completed(resource_group, name) != "Ready":
-                raise Exception(
-                    "DC deployment failed. Please check your dc status in portal \
-                    or reset this create process."
+                # Setting a total wait time of 1800 sec with a step of 5 sec
+                self._wait(
+                    self.dc_deployment_completed,
+                    resource_group,
+                    name,
                 )
-            else:
+                if (
+                    self.dc_deployment_completed(resource_group, name)
+                    != "Ready"
+                ):
+                    raise Exception(
+                        "DC deployment failed. Please check your dc status in portal \
+                        or reset this create process."
+                    )
                 return self.get_dc(resource_group, name)
         except exceptions.HttpResponseError as e:
             logger.debug(e)
@@ -265,6 +266,7 @@ class ArmClient(object):
         resource_group,
         name,
         target,
+        dry_run=False,
         polling=True,
     ):
         try:
@@ -277,6 +279,16 @@ class ArmClient(object):
                 raise Exception(
                     "An existing operation is in progress. Please check your DC's status in the Azure Portal."
                 )
+
+            # if dry_run is specified, we will simply print and return.
+            if dry_run:
+                print("****Dry Run****")
+                print(
+                    "Arcdata Control Plane would be upgraded to: {0}".format(
+                        target
+                    )
+                )
+                return
 
             dc.properties.k8_s_raw["spec"]["docker"]["imageTag"] = target
 
@@ -497,6 +509,7 @@ class ArmClient(object):
                 all_prop["sku"]["tier"] = tier
             if dev and dev != k8s["spec"]["dev"]:
                 k8s["spec"]["dev"] = dev
+
             # Other items which are either disappeared in the
             # sqlmi_cr_model or azure.liquid template
             #
@@ -713,25 +726,33 @@ class ArmClient(object):
             # -- Validation check --
             #
             self._is_valid_sqlmi_create(
-                k8s["spec"]["replicas"],
-                k8s["spec"]["scheduling"]["default"]["resources"]["limits"][
-                    "cpu"
+                replicas=k8s["spec"]["replicas"],
+                cores_limit=k8s["spec"]["scheduling"]["default"]["resources"][
+                    "limits"
+                ]["cpu"],
+                cores_request=k8s["spec"]["scheduling"]["default"]["resources"][
+                    "requests"
+                ]["cpu"],
+                memory_limit=k8s["spec"]["scheduling"]["default"]["resources"][
+                    "limits"
+                ]["memory"],
+                memory_request=k8s["spec"]["scheduling"]["default"][
+                    "resources"
+                ]["requests"]["memory"],
+                volume_size_data=k8s["spec"]["storage"]["data"]["volumes"][0][
+                    "size"
                 ],
-                k8s["spec"]["scheduling"]["default"]["resources"]["requests"][
-                    "cpu"
+                volume_size_logs=k8s["spec"]["storage"]["logs"]["volumes"][0][
+                    "size"
                 ],
-                k8s["spec"]["scheduling"]["default"]["resources"]["limits"][
-                    "memory"
-                ],
-                k8s["spec"]["scheduling"]["default"]["resources"]["requests"][
-                    "memory"
-                ],
-                k8s["spec"]["storage"]["datalogs"]["volumes"][0]["size"],
-                k8s["spec"]["storage"]["logs"]["volumes"][0]["size"],
-                k8s["spec"]["storage"]["datalogs"]["volumes"][0]["size"],
-                k8s["spec"]["storage"]["backups"]["volumes"][0]["size"],
-                all_prop["properties"]["licenseType"],
-                all_prop["sku"]["tier"],
+                volume_size_datalogs=k8s["spec"]["storage"]["datalogs"][
+                    "volumes"
+                ][0]["size"],
+                volume_size_backups=k8s["spec"]["storage"]["backups"][
+                    "volumes"
+                ][0]["size"],
+                license_type=all_prop["properties"]["licenseType"],
+                tier=all_prop["sku"]["tier"],
             )
 
             # -- Put everything together
@@ -752,21 +773,19 @@ class ArmClient(object):
 
             if polling:
                 # Setting a total wait time of 600 sec with a step of 5 sec
-                for _ in range(0, 600, 5):
-                    status = self.sqlmi_deployment_completed(
-                        resource_group, name
-                    )
-                    if status == "Ready":
-                        break
-                    else:
-                        time.sleep(5)
-
-            if self.sqlmi_deployment_completed(resource_group, name) != "Ready":
-                raise Exception(
-                    "SQLMI deployment failed. Please check your sqlmi status "
-                    "in portal or reset this create process."
+                self._wait(
+                    self.sqlmi_deployment_completed,
+                    resource_group,
+                    name,
                 )
-            else:
+                if (
+                    self.sqlmi_deployment_completed(resource_group, name)
+                    != "Ready"
+                ):
+                    raise Exception(
+                        "SQLMI deployment failed. Please check your sqlmi status "
+                        "in portal or reset this create process."
+                    )
                 return self.get_sqlmi(resource_group, name)
         except exceptions.HttpResponseError as e:
             logger.debug(e)
@@ -811,6 +830,22 @@ class ArmClient(object):
             ).as_dict()
 
             logger.debug(json.dumps(result, indent=4))
+
+            return result
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def get_sqlmi_as_obj(self, rg_name, sqlmi_name):
+        try:
+            result = self._arm_client.sql_managed_instances.get(
+                resource_group_name=rg_name,
+                sql_managed_instance_name=sqlmi_name,
+            )
+
+            logger.debug(json.dumps(result.as_dict(), indent=4))
 
             return result
         except exceptions.HttpResponseError as e:
@@ -942,20 +977,151 @@ class ArmClient(object):
             == "Ready"
         )
 
-    def update_sqlmi(self, rg_name, sqlmi_name, properties: dict):
+    def update_sqlmi(
+        self,
+        name,
+        cores_limit=None,
+        cores_request=None,
+        memory_limit=None,
+        memory_request=None,
+        license_type=None,
+        no_wait=False,
+        labels=None,
+        annotations=None,
+        service_labels=None,
+        service_annotations=None,
+        agent_enabled=None,
+        trace_flags=None,
+        retention_days=None,
+        resource_group=None,
+    ):
         try:
             # get_sqmlmi then mixin properties
-            result = self._arm_client.sql_managed_instances.update(
-                resource_group_name=rg_name,
-                sql_managed_instance_name=sqlmi_name,
-                parameters=properties,
+            response = self.get_sqlmi_as_obj(resource_group, name)
+            resources = (
+                response.properties.k8_s_raw.spec.scheduling.default.resources
+            )
+            additional_properties = (
+                response.properties.k8_s_raw.spec.additional_properties
+            )
+            if (
+                response.properties.provisioning_state == "Accepted"
+                or response.properties.provisioning_state == "Deleting"
+            ):
+                raise Exception(
+                    "An existing operation is in progress. Please check your sqlmi's status in the Azure Portal."
+                )
+            if cores_limit and cores_limit != resources.limits["cpu"]:
+                resources.limits["cpu"] = cores_limit
+            if cores_request and cores_request != resources.requests["cpu"]:
+                resources.requests["cpu"] = cores_request
+            if memory_limit and memory_limit != resources.limits["memory"]:
+                resources.limits["memory"] = memory_limit
+            if (
+                memory_request
+                and memory_request != resources.requests["memory"]
+            ):
+                resources.requests["memory"] = memory_request
+            if (
+                agent_enabled
+                and agent_enabled
+                != additional_properties["settings"]["sqlagent"]["enabled"]
+            ):
+                additional_properties["settings"]["sqlagent"][
+                    "enabled"
+                ] = agent_enabled
+            if (
+                retention_days
+                and retention_days
+                != additional_properties["backup"]["retentionPeriodInDays"]
+            ):
+                additional_properties["backup"][
+                    "retentionPeriodInDays"
+                ] = retention_days
+            if trace_flags:
+                additional_properties["settings"]["traceFlags"] = trace_flags
+            if labels:
+                additional_properties["metadata"]["labels"] = labels
+            if annotations:
+                additional_properties["metadata"]["annotations"] = annotations
+            if service_labels:
+                additional_properties["services"]["primary"][
+                    "labels"
+                ] = service_labels
+            if service_annotations:
+                additional_properties["services"]["primary"][
+                    "annotations"
+                ] = service_annotations
+            if license_type:
+                response.properties.license_type = license_type
+
+            # -- Validation check -- prisioning is very slow so we check here
+            #
+            self._is_valid_sqlmi_create(
+                replicas=response.properties.k8_s_raw.spec.replicas,
+                cores_limit=resources.limits["cpu"],
+                cores_request=resources.requests["cpu"],
+                memory_limit=resources.limits["memory"],
+                memory_request=resources.requests["memory"],
+                volume_size_data=additional_properties["storage"]["data"][
+                    "volumes"
+                ][0]["size"],
+                volume_size_logs=additional_properties["storage"]["logs"][
+                    "volumes"
+                ][0]["size"],
+                volume_size_datalogs=additional_properties["storage"][
+                    "datalogs"
+                ]["volumes"][0]["size"],
+                volume_size_backups=additional_properties["storage"]["backups"][
+                    "volumes"
+                ][0]["size"],
+                license_type=response.properties.license_type,
+                tier=response.sku.tier,
             )
 
-            return result
+            self._arm_client.sql_managed_instances.begin_create(
+                resource_group_name=resource_group,
+                sql_managed_instance_name=name,
+                sql_managed_instance=response,
+            )
+
+            if not no_wait:
+                self._wait(
+                    self.sqlmi_deployment_completed,
+                    resource_group,
+                    name,
+                )
+                if (
+                    self.sqlmi_deployment_completed(resource_group, name)
+                    != "Ready"
+                ):
+                    raise Exception(
+                        "SQLMI deployment failed. Please check your sqlmi status "
+                        "in portal or reset this create process."
+                    )
+                return self.get_sqlmi(resource_group, name)
         except exceptions.HttpResponseError as e:
             logger.debug(e)
             raise exceptions.HttpResponseError(e.message)
         except Exception as e:
+            raise e
+
+    def _wait(self, func: Callable, *func_args, retry_tol=1800, retry_delay=5):
+        try:
+            for _ in range(0, retry_tol, retry_delay):
+                status = func(*func_args)
+                if status == "Ready":
+                    break
+                elif "Error" in status:
+                    raise Exception(
+                        "An error happened while waiting. The deployment state is: \n{0}".format(
+                            status
+                        )
+                    )
+                else:
+                    time.sleep(retry_delay)
+        except Exception as e:
+            logger.debug(e)
             raise e
 
     def list_sqlmi(self, rg_name):
@@ -1003,7 +1169,7 @@ class ArmClient(object):
         tier,
     ):
         tier_set = {"gp", "GeneralPurpose", "bc", "BusinessCritical"}
-        license_type_set = {"BasePrice", "LicenseIncluded"}
+        license_type_set = {"BasePrice", "LicenseIncluded", "DisasterRecovery"}
         try:
             if tier not in tier_set:
                 raise Exception("Tier {0} is not a support input.".format(tier))

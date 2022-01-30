@@ -213,7 +213,7 @@ def dc_update(
 def dc_upgrade(
     client,
     namespace=None,
-    target=None,
+    desired_version=None,
     dry_run=None,
     use_k8s=None,
     resource_group=None,
@@ -224,7 +224,7 @@ def dc_upgrade(
         cvo = client.args_to_command_value_object(
             {
                 "namespace": namespace,
-                "target": target,
+                "target": desired_version,
                 "dry_run": dry_run,
                 "no_wait": nowait,
                 "name": name,

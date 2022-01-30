@@ -113,8 +113,9 @@ def validate_upgrade(namespace):
 
     # -- direct --
     if not namespace.use_k8s:
-        if not namespace.target:
-            required_for_direct.append("--target")
+        if hasattr(namespace, "desired_version"):
+            if not namespace.desired_version:
+                required_for_direct.append("--desired-version")
 
         if not namespace.name:
             required_for_direct.append("--name")

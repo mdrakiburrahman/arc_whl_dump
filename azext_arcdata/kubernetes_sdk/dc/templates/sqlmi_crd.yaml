@@ -51,6 +51,28 @@ spec:
       jsonPath: ".metadata.creationTimestamp"
   - name: v2
     served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Status
+      type: string
+      jsonPath: ".status.state"
+    - name: Replicas
+      type: string
+      jsonPath: ".status.readyReplicas"
+    - name: Primary-Endpoint
+      type: string
+      jsonPath: ".status.primaryEndpoint"
+    - name: Age
+      type: date
+      jsonPath: ".metadata.creationTimestamp"
+  - name: v3
+    served: true
     storage: true
     schema:
       openAPIV3Schema:

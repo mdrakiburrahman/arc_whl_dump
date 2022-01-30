@@ -341,7 +341,7 @@ helps[
     long="Create a distributed availability group custom resource to create a "
     "distributed availability group ",
     cmd="az sql mi-arc dag create --name dagCr1 --dag-name dagName1 "
-    "--local-instance-name sqlmi1 --local-primary local "
+    "--local-instance-name sqlmi1 --role primary "
     "--remote-instance-name sqlmi2 "
     "--remote-mirroring-url remotePrimary:5022 "
     "--remote-mirroring-cert-file ./sqlmi2.cer --use-k8s",
@@ -350,6 +350,27 @@ helps[
     "instance sqlmi1 and remote sqlmi instance sqlmi2. It requires remote "
     "sqlmi primary mirror remotePrimary:5022 and remote sqlmi mirror "
     "endpoint certificate file ./sqlmi2.cer.",
+)
+
+# pylint: disable=line-too-long
+helps[
+    "sql mi-arc dag update"
+] = """
+    type: command
+    short-summary: {short}
+    long-summary: {long}
+    examples:
+        - name: {ex1}
+          text: >
+            {cmd}
+""".format(
+    short="Update a distributed availability group custom resource",
+    long="Update a distributed availability group custom resource to change the role of "
+    "distributed availability group ",
+    cmd="az sql mi-arc dag update --name dagCr1 "
+    "--role secondary --use-k8s",
+    ex1="Ex 1 - Update a distributed availability group custom resource dagCr1 "
+    "to secondary role from primary",
 )
 
 # pylint: disable=line-too-long

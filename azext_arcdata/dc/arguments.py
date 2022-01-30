@@ -644,14 +644,18 @@ def load_arguments(self, _):
             help="The Kubernetes namespace in which the data controller "
             "exists.",
         )
-
         arg_context.argument(
-            "target",
-            options_list=["--desired-version", "--target", "-t", "-v"],
+            "desired_version",
+            options_list=[
+                "--desired-version",
+                "-v",
+                arg_context.deprecate(
+                    target="--target", redirect="--desired-version", hide=False
+                ),
+            ],
             help="The desired version tag to which the data controller will "
             "be upgraded, or empty to use the latest.",
         )
-
         arg_context.argument(
             "dry_run",
             options_list=["--dry-run", "-d"],

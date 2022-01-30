@@ -11,7 +11,10 @@ from azext_arcdata.core.constants import (
 )
 from azext_arcdata.sqlmi.constants import (
     SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG_CREATE,
+    SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG,
     SQLMI_TIER_ALLOWED_VALUES_MSG_CREATE,
+    DAG_ROLES_ALLOWED_VALUES_MSG_CREATE,
+    DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE,
 )
 
 
@@ -327,8 +330,15 @@ def load_arguments(self, _):
         )
         c.argument(
             "desired_version",
-            options_list=["--desired-version", "--target", "-v"],
-            help="Desired version to upgrade to.  Optional if no version specified, the data controller version will be used.",
+            options_list=[
+                "--desired-version",
+                "-v",
+                c.deprecate(
+                    target="--target", redirect="--desired-version", hide=False
+                ),
+            ],
+            help="Desired version to upgrade to. Optional if no version "
+            "specified, the data controller version will be used.",
         )
         c.argument(
             "force",
@@ -388,13 +398,6 @@ def load_arguments(self, _):
             help="The SQL Server time zone for the instance.",
         )
         c.argument(
-            "dev",
-            options_list=["--dev"],
-            action="store_true",
-            help="If this is specified, then it is considered a dev instance "
-            "and will not be billed for.",
-        )
-        c.argument(
             "cores_limit",
             options_list=["--cores-limit", "-c"],
             help="The cores limit of the managed instance as an integer.",
@@ -416,6 +419,12 @@ def load_arguments(self, _):
             options_list=["--memory-request"],
             help="The request for the capacity of the managed instance as an "
             "integer number followed by Gi (gigabytes). Example: 4Gi",
+        )
+        c.argument(
+            "license_type",
+            options_list=["--license-type", "-l"],
+            help="The license type to apply for this managed instance "
+            "{}.".format(SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG_CREATE),
         )
         c.argument(
             "labels",
@@ -460,6 +469,11 @@ def load_arguments(self, _):
             "backups for all the databases on the SQL managed "
             "instance and any prior backups will be deleted.",
         )
+        c.argument(
+            "preferred_primary_replica",
+            options_list=["--preferred-primary-replica"],
+            help=""
+        )
         # -- indirect --
         c.argument(
             "namespace",
@@ -475,12 +489,6 @@ def load_arguments(self, _):
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             action="store_true",
             help="Create SQL managed instance using local Kubernetes APIs.",
-        )
-        c.argument(
-            "location",
-            options_list=["--location"],
-            help="The Azure location in which the sqlmi metadata "
-            "will be stored (e.g. eastus).",
         )
         c.argument(
             "certificate_public_key_file",
@@ -503,38 +511,19 @@ def load_arguments(self, _):
             help="Name of the Kubernetes secret to generate that hosts or "
             "will host SQL service certificate.",
         )
+        c.argument(
+            "preferred_primary_replica",
+            options_list=["--preferred-primary-replica"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="The preferred primary replica to be updated.",
+        )
         # -- direct --
-        c.argument(
-            "location",
-            options_list=["--location"],
-            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="The Azure location in which the sqlmi metadata "
-            "will be stored (e.g. eastus).",
-        )
-        c.argument(
-            "custom_location",
-            options_list=["--custom-location"],
-            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="The custom location for this instance.",
-        )
         c.argument(
             "resource_group",
             options_list=["--resource-group", "-g"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help="The Azure resource group in which the sqlmi "
-            "resource should be added.",
-        )
-        c.argument(
-            "tag_name",
-            options_list=["--tag-name"],
-            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="The tag name of the SQL managed instance.",
-        )
-        c.argument(
-            "tag_value",
-            options_list=["--tag-value"],
-            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="The tag value of the SQL managed instance.",
+            "resource should be updated.",
         )
 
     with ArgumentsContext(self, "sql mi-arc edit") as c:
@@ -599,6 +588,12 @@ def load_arguments(self, _):
             help="Comma-separated list of labels of the SQL managed instance.",
         )
         c.argument(
+            "license_type",
+            options_list=["--license-type"],
+            help="The license type to update for this managed instance "
+            "{}".format(SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG),
+        )
+        c.argument(
             "annotations",
             options_list=["--annotations"],
             help="Comma-separated list of annotations of the SQL managed "
@@ -652,17 +647,12 @@ def load_arguments(self, _):
             action="store_true",
             help="Create SQL managed instance using local Kubernetes APIs.",
         )
-        c.argument(
-            "location",
-            options_list=["--location"],
-            help="The Azure location in which the sqlmi metadata "
-            "will be stored (e.g. eastus).",
-        )
         # -- direct --
         c.argument(
             "location",
             options_list=["--location"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+
             help="The Azure location in which the sqlmi metadata "
             "will be stored (e.g. eastus).",
         )
@@ -670,14 +660,14 @@ def load_arguments(self, _):
             "custom_location",
             options_list=["--custom-location"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="The custom location for this instance.",
+            help="[Required] The custom location for this instance.",
         )
         c.argument(
             "resource_group",
             options_list=["--resource-group", "-g"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help="The Azure resource group in which the sqlmi "
-            "resource should be added.",
+                 "resource should be added.",
         )
         c.argument(
             "tag_name",
@@ -933,18 +923,18 @@ def load_arguments(self, _):
         )
         c.argument(
             "local_instance_name",
-            options_list=["--local-instance-name", "-l"],
-            help="The name of the local SQL managed instance",
+            options_list=["--local-instance-name"],
+            help="The name of the local SQL managed instance.",
         )
         c.argument(
-            "local_primary",
-            options_list=["--local-primary", "-p"],
-            help="True indicates local SQL managed instance is geo primary. "
-            "False indicates local SQL managed instance is geo secondary",
+            "role",
+            options_list=["--role"],
+            help="The requested role of the distributed availability group. "
+            "{}".format(DAG_ROLES_ALLOWED_VALUES_MSG_CREATE),
         )
         c.argument(
             "remote_instance_name",
-            options_list=["--remote-instance-name", "-r"],
+            options_list=["--remote-instance-name"],
             help="The name of the remote SQL managed instance or remote SQL "
             "availability group",
         )
@@ -957,15 +947,9 @@ def load_arguments(self, _):
         c.argument(
             "remote_mirroring_cert_file",
             options_list=["--remote-mirroring-cert-file", "-f"],
-            help="The filename of mirroring endpoint public certficate for "
+            help="The filename of mirroring endpoint public certificate for "
             "the remote SQL managed instance or remote SQL availability "
-            "group. Only PEM format is supported",
-        )
-        c.argument(
-            "path",
-            options_list=["--path"],
-            help="Path to the custom resource specification, i.e. "
-            "custom/spec.json",
+            "group. Only PEM format is supported.",
         )
         # -- indirect --
         c.argument(
@@ -982,6 +966,33 @@ def load_arguments(self, _):
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             action="store_true",
             help="Create SQL managed instance using local Kubernetes APIs.",
+        )
+
+    with ArgumentsContext(self, "sql mi-arc dag update") as c:
+        c.argument(
+            "name",
+            options_list=["--name", "-n"],
+            help="The name of the distributed availability group resource.",
+        )
+        c.argument(
+            "role",
+            options_list=["--role"],
+            help="The requested role change of distributed availability group "
+            "resource. "
+            "{}".format(DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE),
+        )
+        c.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            help="Namespace where the SQL managed instance exists. "
+            "If no namespace is specified, then the namespace defined "
+            "in the kubeconfig will be used.",
+        )
+        c.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            action="store_true",
+            help=USE_K8S_TEXT,
         )
 
     with ArgumentsContext(self, "sql mi-arc dag delete") as c:

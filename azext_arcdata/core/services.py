@@ -377,6 +377,7 @@ class ArmDataControllerServiceProxy(BaseDataControllerServiceProxy, ArmMixin):
             command_value_object.resource_group,
             command_value_object.name,
             command_value_object.target,
+            command_value_object.dry_run,
             polling=polling,
         )
 

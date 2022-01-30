@@ -32,12 +32,12 @@ from azext_arcdata.core.util import (
     get_config_from_template,
     is_windows,
     retry,
-    parse_cert_files
+    parse_cert_files,
 )
 from azext_arcdata.kubernetes_sdk.util import (
-    validate_certificate_secret, 
+    validate_certificate_secret,
     create_certificate_secret,
-    check_secret_exists_with_retries
+    check_secret_exists_with_retries,
 )
 from azext_arcdata.kubernetes_sdk.dc.constants import (
     DAG_CRD_NAME,
@@ -70,6 +70,8 @@ from azext_arcdata.sqlmi.constants import (
     SQLMI_TIER_BUSINESS_CRITICAL_SHORT,
     SQLMI_TIER_DEFAULT,
     SQLMI_TIER_GENERAL_PURPOSE,
+    DAG_ROLES_ALLOWED_VALUES_MSG_CREATE,
+    DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE,
 )
 from azext_arcdata.sqlmi.exceptions import SqlmiError
 from azext_arcdata.sqlmi.models.dag_cr import DagCustomResource
@@ -82,6 +84,7 @@ from azext_arcdata.sqlmi.util import (
     is_valid_sql_password,
     validate_admin_login_secret,
     validate_labels_and_annotations,
+    validate_dag_roles,
 )
 from humanfriendly.terminal.spinners import AutomaticSpinner
 from knack.cli import CLIError
@@ -196,7 +199,6 @@ def arc_sql_mi_create(
                 "kind": RESOURCE_KIND,
                 "metadata": {},
                 "spec": {
-                    "forceHA": "true",
                     "backup": {
                         "retentionPeriodInDays": rd,
                     },
@@ -386,7 +388,7 @@ def arc_sql_mi_create(
             name,
             certificate_public_key_file,
             certificate_private_key_file,
-            service_certificate_secret
+            service_certificate_secret,
         )
 
         # Create custom resource.
@@ -589,6 +591,7 @@ def arc_sql_mi_edit(
     cores_request=None,
     memory_limit=None,
     memory_request=None,
+    license_type=None,
     nowait=False,
     dev=None,
     labels=None,
@@ -601,9 +604,9 @@ def arc_sql_mi_edit(
     use_k8s=None,
     retention_days=None,
     # -- direct --
+    resource_group=None,
     location=None,
     custom_location=None,
-    resource_group=None,
     tag_name=None,
     tag_value=None,
 ):
@@ -611,299 +614,38 @@ def arc_sql_mi_edit(
     Deprecated, use update over edit.
     """
     try:
-        if False:
-            from azext_arcdata.arm_sdk.client import ArmClient
-
-            cred = ArcDataCliCredential()
-            subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
-
-            # Update the path or the latest cloud template
-            #
-            if path:
-                with open(path, encoding="utf-8") as input_file:
-                    prop = json.load(input_file)
-            else:
-                response = arc_sql_mi_show(client, name, resource_group)
-                prop = {
-                    "properties": {},
-                }
-                prop["properties"]["k8sRaw"] = response["properties"][
-                    "k8_s_raw"
-                ]
-                prop["sku"] = response["sku"]
-                # Tag is not supported for now
-                #
-                # prop["tags"] = response["tags"]
-                k8s = prop["properties"]["k8sRaw"]
-
-            cores_limit_flag = False
-            cores_request_flag = False
-            memory_limit_flag = False
-            memory_request_flag = False
-            dev_flag = False
-            agent_enabled_flag = False
-            time_zone_flag = False
-            retention_days_flag = False
-            labels_flag = False
-            annotations_flag = False
-            service_labels_flag = False
-            service_annotations_flag = False
-            if (
-                cores_limit
-                and cores_limit
-                != prop["properties"]["k8sRaw"]["spec"]["scheduling"][
-                    "default"
-                ]["resources"]["limits"]["cpu"]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["limits"]["cpu"] = cores_limit
-                cores_limit_flag = True
-            if (
-                cores_request
-                and cores_request
-                != prop["properties"]["k8sRaw"]["spec"]["scheduling"][
-                    "default"
-                ]["resources"]["requests"]["cpu"]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["requests"]["cpu"] = cores_request
-                cores_request_flag = True
-            if (
-                memory_limit
-                and memory_limit
-                != prop["properties"]["k8sRaw"]["spec"]["scheduling"][
-                    "default"
-                ]["resources"]["limits"]["memory"]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["limits"]["memory"] = memory_limit
-                memory_limit_flag = True
-            if (
-                memory_request
-                and memory_request
-                != prop["properties"]["k8sRaw"]["spec"]["scheduling"][
-                    "default"
-                ]["resources"]["requests"]["memory"]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["requests"]["memory"] = memory_request
-                memory_request_flag = True
-            if (
-                agent_enabled
-                and agent_enabled
-                != prop["properties"]["k8sRaw"]["spec"]["settings"]["sqlagent"][
-                    "enabled"
-                ]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["settings"]["sqlagent"][
-                    "enabled"
-                ] = agent_enabled
-                agent_enabled_flag = True
-            if (
-                time_zone
-                and time_zone
-                != prop["properties"]["k8sRaw"]["spec"]["settings"]["timezone"]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["settings"][
-                    "timezone"
-                ] = time_zone
-                time_zone_flag = True
-            if (
-                retention_days
-                and retention_days
-                != prop["properties"]["k8sRaw"]["spec"]["backup"][
-                    "retentionPeriodInDays"
-                ]
-            ):
-                prop["properties"]["k8sRaw"]["spec"]["backup"][
-                    "retentionPeriodInDays"
-                ] = retention_days
-                retention_days_flag = True
-            if trace_flags:
-                prop["properties"]["k8sRaw"]["spec"]["settings"][
-                    "traceFlags"
-                ] = trace_flags
-            if labels:
-                prop["properties"]["k8sRaw"]["spec"]["metadata"][
-                    "labels"
-                ] = labels
-                labels_flag = True
-            if annotations:
-                prop["properties"]["k8sRaw"]["spec"]["metadata"][
-                    "annotations"
-                ] = annotations
-                annotations_flag = True
-            if service_labels:
-                prop["properties"]["k8sRaw"]["spec"]["services"]["primary"][
-                    "labels"
-                ] = service_labels
-                service_labels_flag = True
-            if service_annotations:
-                prop["properties"]["k8sRaw"]["spec"]["services"]["primary"][
-                    "annotations"
-                ] = service_annotations
-                service_annotations_flag = True
-
-            # dev key should be bool, but was logged str. Need further debug.
-            #
-            # if dev and dev != prop["properties"]["k8sRaw"]["spec"]["dev"]:
-            #     prop["properties"]["k8sRaw"]["spec"]["dev"] = dev
-            #     dev_flag = True
-
-            # --- currently not supported by cloud side ---
-            # Other items which are either disappeared in the
-            # sqlmi_cr_model or azure.liquid template
-            #
-            # if preferred_primary_replica:
-            #     prop["properties"]["k8sRaw"]["spec"][
-            #         "preferredPrimaryReplica"
-            #     ] = preferred_primary_replica
-            # if preferred_primary_replica:
-            #     prop["properties"]["k8sRaw"]["spec"][
-            #         "primaryReplicaFailoverInterval"
-            #     ] = primary_replica_failover_interval
-            # if tag_name and tag_value:
-            #     update_Content = {"tags": {tag_name: tag_value}}
-            #     poller = armclient.patch_sqlmi(
-            #         rg_name=resource_group,
-            #         sqlmi_name=name,
-            #         properties=update_Content,
-            #     )
-
-            poller = None
-            if (
-                cores_limit_flag
-                or cores_request_flag
-                or memory_limit_flag
-                or memory_request_flag
-                # Below are the keys are missing in the portal
-                #
-                # or preferred_primary_replica
-                # or primary_replica_failover_interval
-                # Below are the flags which may crash the status key
-                # in the portal response and also won't change the
-                # cluster status. Need further check to enable
-                #
-                # or labels_flag
-                # or annotations_flag
-                # or service_labels_flag
-                # or service_annotations_flag
-                # or trace_flags
-                # or dev_flag
-                # or time_zone_flag
-                # or agent_enabled_flag
-                # or retention_days_flag
-            ):
-                return armclient.create_sqlmi(
-                    name=name,
-                    location=location,
-                    custom_location=custom_location,
-                    resource_group=resource_group,
-                    namespace=k8s["spec"]["metadata"]["namespace"],
-                    path=path,
-                    replicas=k8s["spec"]["replicas"],
-                    cores_limit=k8s["spec"]["scheduling"]["default"][
-                        "resources"
-                    ]["limits"]["cpu"],
-                    cores_request=k8s["spec"]["scheduling"]["default"][
-                        "resources"
-                    ]["requests"]["cpu"],
-                    memory_limit=k8s["spec"]["scheduling"]["default"][
-                        "resources"
-                    ]["limits"]["memory"],
-                    memory_request=k8s["spec"]["scheduling"]["default"][
-                        "resources"
-                    ]["requests"]["memory"],
-                    storage_class_data=k8s["spec"]["storage"]["data"][
-                        "volumes"
-                    ][0]["className"],
-                    storage_class_logs=k8s["spec"]["storage"]["logs"][
-                        "volumes"
-                    ][0]["className"],
-                    storage_class_datalogs=k8s["spec"]["storage"]["datalogs"][
-                        "volumes"
-                    ][0]["className"],
-                    storage_class_backups=k8s["spec"]["storage"]["backups"][
-                        "volumes"
-                    ][0]["className"],
-                    volume_size_data=k8s["spec"]["storage"]["data"]["volumes"][
-                        0
-                    ]["size"],
-                    volume_size_logs=k8s["spec"]["storage"]["logs"]["volumes"][
-                        0
-                    ]["size"],
-                    volume_size_datalogs=k8s["spec"]["storage"]["datalogs"][
-                        "volumes"
-                    ][0]["size"],
-                    volume_size_backups=k8s["spec"]["storage"]["backups"][
-                        "volumes"
-                    ][0]["size"],
-                    no_wait=nowait,
-                    noexternal_endpoint=None,
-                    certificate_public_key_file=None,
-                    certificate_private_key_file=None,
-                    service_certificate_secret=None,
-                    admin_login_secret=None,
-                    license_type=response["properties"]["license_type"],
-                    tier=k8s["spec"]["tier"],
-                    dev=dev,
-                    labels=k8s["spec"]["metadata"]["labels"],
-                    annotations=k8s["spec"]["metadata"]["annotations"],
-                    service_labels=k8s["spec"]["services"]["primary"]["labels"],
-                    service_annotations=k8s["spec"]["services"]["primary"][
-                        "annotations"
-                    ],
-                    storage_labels=None,
-                    storage_annotations=None,
-                    use_k8s=None,
-                    collation=k8s["spec"]["settings"]["collation"],
-                    language=k8s["spec"]["settings"]["language"],
-                    agent_enabled=k8s["spec"]["settings"]["sqlagent"][
-                        "enabled"
-                    ],
-                    trace_flags=k8s["spec"]["settings"]["traceFlags"],
-                    time_zone=k8s["spec"]["settings"]["timezone"],
-                    retention_days=k8s["spec"]["backup"][
-                        "retentionPeriodInDays"
-                    ],
-                    polling=not nowait,
-                )
-        else:
-            arc_sql_mi_update(
-                client,
-                name,
-                namespace=namespace,
-                path=path,
-                cores_limit=cores_limit,
-                cores_request=cores_request,
-                memory_limit=memory_limit,
-                memory_request=memory_request,
-                no_wait=nowait,
-                dev=dev,
-                labels=labels,
-                annotations=annotations,
-                service_labels=service_labels,
-                service_annotations=service_annotations,
-                agent_enabled=agent_enabled,
-                trace_flags=trace_flags,
-                time_zone=time_zone,
-                # preferred_primary_replica=preferred_primary_replica,
-                # primary_replica_failover_interval=primary_replica_failover_interval,
-                use_k8s=use_k8s,
-                retention_days=retention_days,
-                location=location,
-                custom_location=custom_location,
-                resource_group=resource_group,
-                tag_name=tag_name,
-                tag_value=tag_value,
-            )
+        arc_sql_mi_update(
+            client,
+            name,
+            path=path,
+            time_zone=time_zone,
+            cores_limit=cores_limit,
+            cores_request=cores_request,
+            memory_limit=memory_limit,
+            memory_request=memory_request,
+            license_type=license_type,
+            no_wait=nowait,
+            labels=labels,
+            annotations=annotations,
+            service_labels=service_labels,
+            service_annotations=service_annotations,
+            agent_enabled=agent_enabled,
+            trace_flags=trace_flags,
+            retention_days=retention_days,
+            certificate_public_key_file=None,
+            certificate_private_key_file=None,
+            service_certificate_secret=None,
+            preferred_primary_replica=None,
+            # -- indirect --
+            use_k8s=use_k8s,
+            namespace=namespace,
+            # -- direct --
+            resource_group=resource_group,
+            #location=location,
+            #custom_location=custom_location,
+            #tag_name=tag_name,
+            #tag_value=tag_value,
+        )
     except KubernetesError as e:
         raise SqlmiError(e.message)
     except Exception as e:
@@ -913,41 +655,35 @@ def arc_sql_mi_edit(
 def arc_sql_mi_update(
     client,
     name,
-    namespace=None,
     path=None,
+    time_zone=None,
     cores_limit=None,
     cores_request=None,
     memory_limit=None,
     memory_request=None,
+    license_type=None,
     no_wait=False,
-    dev=None,
     labels=None,
     annotations=None,
     service_labels=None,
     service_annotations=None,
     agent_enabled=None,
     trace_flags=None,
-    time_zone=None,
-    use_k8s=None,
     retention_days=None,
     certificate_public_key_file=None,
     certificate_private_key_file=None,
     service_certificate_secret=None,
+    preferred_primary_replica=None,
+    # -- indirect --
+    use_k8s=None,
+    namespace=None,
     # -- direct --
-    location=None,
-    custom_location=None,
     resource_group=None,
-    tag_name=None,
-    tag_value=None,
 ):
     """
     Edit the configuration of a SQL managed instance.
     """
-    if not use_k8s:
-        raise ValueError(USE_K8S_EXCEPTION_TEXT)
-
     # -- currently not used, setting to empty --
-    preferred_primary_replica = None
     primary_replica_failover_interval = None
 
     args = locals()
@@ -969,10 +705,6 @@ def arc_sql_mi_update(
     try:
         if not use_k8s:
             from azext_arcdata.arm_sdk.client import ArmClient
-            from azext_arcdata.sqlmi.constants import (
-                SQLMI_DIRECT_MODE_OUTPUT_SPEC,
-                SQLMI_DIRECT_MODE_SPEC_MERGE,
-            )
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
@@ -980,163 +712,32 @@ def arc_sql_mi_update(
                 azure_credential=cred, subscription_id=subscription
             )
 
-            loc = {"location": location}
-            extendedLocation = (
-                "/subscriptions/"
-                + subscription
-                + "/resourcegroups/"
-                + resource_group
-                + "/providers/microsoft.extendedlocation/customlocations/"
-                + custom_location
+            validate_labels_and_annotations(
+                labels,
+                annotations,
+                service_labels,
+                service_annotations,
+                None,
+                None,
             )
-            exloc = {
-                "extended_location": {
-                    "name": extendedLocation,
-                    "type": "CustomLocation",
-                }
-            }
 
-            # Update the path or just the last created template
-            config_file = path or os.path.join(SQLMI_DIRECT_MODE_OUTPUT_SPEC)
-            with open(config_file, encoding="utf-8") as input_file:
-                prop = json.load(input_file)
-
-            if cores_limit:
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["limits"]["cpu"] = cores_limit
-            if cores_request:
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["requests"]["cpu"] = cores_request
-            if memory_limit:
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["limits"]["memory"] = memory_limit
-            if memory_request:
-                prop["properties"]["k8sRaw"]["spec"]["scheduling"]["default"][
-                    "resources"
-                ]["requests"]["memory"] = memory_request
-            if dev:
-                prop["properties"]["k8sRaw"]["spec"]["dev"] = dev
-            if labels:
-                prop["properties"]["k8sRaw"]["spec"]["metadata"][
-                    "labels"
-                ] = labels
-            if annotations:
-                prop["properties"]["k8sRaw"]["spec"]["metadata"][
-                    "annotations"
-                ] = annotations
-            if service_labels:
-                prop["properties"]["k8sRaw"]["spec"]["services"]["primary"][
-                    "labels"
-                ] = service_labels
-            if service_annotations:
-                prop["properties"]["k8sRaw"]["spec"]["services"]["primary"][
-                    "annotations"
-                ] = service_annotations
-            if agent_enabled:
-                prop["properties"]["k8sRaw"]["spec"]["settings"][
-                    "agentEnabled"
-                ] = agent_enabled
-            if time_zone:
-                prop["properties"]["k8sRaw"]["spec"]["settings"][
-                    "timeZone"
-                ] = time_zone
-            if trace_flags:
-                prop["properties"]["k8sRaw"]["spec"]["settings"][
-                    "traceFlags"
-                ] = trace_flags
-            # Other items which are either disappeared in the
-            # sqlmi_cr_model or azure.liquid template
-            if retention_days:
-                prop["properties"]["k8sRaw"]["spec"]["security"]["backup"][
-                    "retentionPeriodInDays"
-                ] = retention_days
-            if tag_name and tag_value:
-                poller = armclient.update_sqlmi(
-                    rg_name=resource_group,
-                    sqlmi_name=name,
-                    properties={"tags": {tag_name: tag_value}},
-                )
-            if retention_days:
-                prop["properties"]["k8sRaw"]["spec"]["security"]["backup"][
-                    "retentionPeriodInDays"
-                ] = retention_days
-            if preferred_primary_replica:
-                prop["properties"]["k8sRaw"]["spec"][
-                    "preferredPrimaryReplica"
-                ] = preferred_primary_replica
-            if preferred_primary_replica:
-                prop["properties"]["k8sRaw"]["spec"][
-                    "primaryReplicaFailoverInterval"
-                ] = primary_replica_failover_interval
-
-            poller = None
-            if (
-                cores_limit
-                or cores_request
-                or memory_limit
-                or memory_request
-                or dev
-                or labels
-                or annotations
-                or service_labels
-                or service_annotations
-                or agent_enabled
-                or trace_flags
-                or time_zone
-                or preferred_primary_replica
-                or primary_replica_failover_interval
-                or use_k8s
-                or retention_days
-            ):
-                poller = armclient.create_sqlmi(
-                    name=name,
-                    namespace=namespace,
-                    path=path,
-                    replicas=None,
-                    cores_limit=cores_limit,
-                    cores_request=cores_request,
-                    memory_limit=memory_limit,
-                    memory_request=memory_request,
-                    storage_class_data=None,
-                    storage_class_logs=None,
-                    storage_class_datalogs=None,
-                    storage_class_backups=None,
-                    volume_size_data=None,
-                    volume_size_logs=None,
-                    volume_size_datalogs=None,
-                    volume_size_backups=None,
-                    no_wait=no_wait,
-                    noexternal_endpoint=None,
-                    certificate_public_key_file=None,
-                    certificate_private_key_file=None,
-                    service_certificate_secret=None,
-                    admin_login_secret=None,
-                    license_type=None,
-                    tier=None,
-                    dev=dev,
-                    labels=labels,
-                    annotations=annotations,
-                    service_labels=service_labels,
-                    service_annotations=service_annotations,
-                    storage_labels=None,
-                    storage_annotations=None,
-                    use_k8s=use_k8s,
-                    collation=None,
-                    language=None,
-                    agent_enabled=agent_enabled,
-                    trace_flags=trace_flags,
-                    time_zone=time_zone,
-                    retention_days=retention_days,
-                    location=location,
-                    custom_location=custom_location,
-                    resource_group=resource_group,
-                    polling=not no_wait,
-                )
-
-                return poller
+            return armclient.update_sqlmi(
+                name=name,
+                cores_limit=cores_limit,
+                cores_request=cores_request,
+                memory_limit=memory_limit,
+                memory_request=memory_request,
+                license_type=license_type,
+                no_wait=no_wait,
+                labels=labels,
+                annotations=annotations,
+                service_labels=service_labels,
+                service_annotations=service_annotations,
+                agent_enabled=agent_enabled,
+                trace_flags=trace_flags,
+                retention_days=retention_days,
+                resource_group=resource_group,
+            )
 
         check_and_set_kubectl_context()
         namespace = client.namespace
@@ -1190,7 +791,7 @@ def arc_sql_mi_update(
             certificate_public_key_file,
             certificate_private_key_file,
             service_certificate_secret,
-            is_update=True
+            is_update=True,
         )
 
         # Patch CR
@@ -1403,35 +1004,23 @@ def arc_sql_mi_getmirroringcert(
         check_and_set_kubectl_context()
         namespace = namespace or client.namespace
 
-        json_object = client.apis.kubernetes.get_namespaced_custom_object(
-            name=name,
-            namespace=namespace,
+        response = client.apis.kubernetes.get_namespaced_custom_object(
+            name,
+            namespace,
             group=API_GROUP,
             version=KubernetesClient.get_crd_version(SQLMI_CRD_NAME),
             plural=RESOURCE_KIND_PLURAL,
         )
-        if not (cert_file):
-            raise CLIError("cert_file cannot be null")
+        cr = CustomResource.decode(SqlmiCustomResource, response)
+        data_pem = cr.status.mirroringCertificate
 
-        cr = CustomResource.decode(SqlmiCustomResource, json_object)
-        cr.apply_args(**args)
-        cr.validate(client.apis.kubernetes)
+        client.stdout(
+            "result write to file {0}: {1}".format(cert_file, data_pem)
+        )
 
-        cr = CustomResource.decode(SqlmiCustomResource, json_object)
-        if cr.spec.replicas > 1 or cr.spec.forceHA:
-            config_map = kubernetes_util.get_config_map(
-                namespace, "sql-config-{0}".format(name)
-            )
-            data_pem = config_map.data["sql-mirroring-cert"]
-            client.stdout(
-                "result write to file {0}: {1}".format(cert_file, data_pem)
-            )
-
-            file = open(cert_file, "w")
-            file.write(data_pem)
-            file.close()
-        else:
-            raise CLIError("More than 1 replica needed MIAA HA scenario.")
+        file = open(cert_file, "w")
+        file.write(data_pem)
+        file.close()
     except Exception as e:
         raise CLIError(e)
 
@@ -1667,12 +1256,11 @@ def arc_sql_mi_dag_create(
     name,
     dag_name,
     local_instance_name,
-    local_primary,
+    role,
     remote_instance_name,
     remote_mirroring_url,
     remote_mirroring_cert_file,
     namespace=None,
-    path=None,
     use_k8s=None,
 ):
     args = locals()
@@ -1682,31 +1270,24 @@ def arc_sql_mi_dag_create(
         check_and_set_kubectl_context()
         namespace = namespace or client.namespace
 
-        # Determine source for the resource spec preferring path first
-        #
-        if not path:
-            # TODO: Use mutating web hooks to set these default values
-            #
-            spec_object = {
-                "apiVersion": DAG_API_GROUP + "/" + DAG_API_VERSION,
-                "kind": DAG_RESOURCE_KIND,
-                "metadata": {"name": name},
-                "spec": {
-                    "input": {
-                        "dagName": dag_name,
-                        "localName": local_instance_name,
-                        "remoteName": remote_instance_name,
-                        "remoteEndpoint": remote_mirroring_url,
-                        "remotePublicCert": "",
-                        "isLocalPrimary": local_primary,
-                    }
-                },
-            }
+        if not validate_dag_roles(role, True):
+            raise ValueError(DAG_ROLES_ALLOWED_VALUES_MSG_CREATE)
 
-        # Otherwise, use the provided src file.
-        #
-        else:
-            spec_object = FileUtil.read_json(path)
+        spec_object = {
+            "apiVersion": DAG_API_GROUP + "/" + DAG_API_VERSION,
+            "kind": DAG_RESOURCE_KIND,
+            "metadata": {"name": name},
+            "spec": {
+                "input": {
+                    "dagName": dag_name,
+                    "localName": local_instance_name,
+                    "remoteName": remote_instance_name,
+                    "remoteEndpoint": remote_mirroring_url,
+                    "remotePublicCert": "",
+                    "role": role,
+                }
+            },
+        }
 
         # Decode base spec and apply args. Must patch namespace in separately
         # since it's not parameterized in this func
@@ -1750,6 +1331,107 @@ def arc_sql_mi_dag_create(
                     state, results
                 )
             )
+
+    except Exception as e:
+        raise CLIError(e)
+
+
+def arc_sql_mi_dag_update(
+    client,
+    name,
+    role,
+    namespace=None,
+    use_k8s=None,
+):
+    """
+    Edit the configuration of a SQL managed instance.
+    """
+    args = locals()
+    try:
+        if not use_k8s:
+            raise ValueError(USE_K8S_EXCEPTION_TEXT)
+        if not validate_dag_roles(role, False):
+            raise ValueError(DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE)
+
+        check_and_set_kubectl_context()
+        namespace = namespace or client.namespace
+
+        # Patch CR
+        patch = {"spec": {"input": {"role": role}}}
+        client.apis.kubernetes.merge_namespaced_custom_object(
+            body=patch,
+            name=name,
+            namespace=namespace,
+            group=DAG_API_GROUP,
+            version=DAG_API_VERSION,
+            plural=DAG_RESOURCE_KIND_PLURAL,
+        )
+
+        time.sleep(5)
+
+        response = client.apis.kubernetes.get_namespaced_custom_object(
+            name,
+            namespace,
+            group=DAG_API_GROUP,
+            version=DAG_API_VERSION,
+            plural=DAG_RESOURCE_KIND_PLURAL,
+        )
+        deployed_cr = CustomResource.decode(DagCustomResource, response)
+
+        if not is_windows():
+            with AutomaticSpinner(
+                "Updating {0} in namespace `{1}`".format(name, namespace),
+                show_time=True,
+            ):
+                while not _is_dag_ready(deployed_cr):
+                    if _is_dag_in_error(deployed_cr):
+                        client.stdout(
+                            "{0} is in error state:{1}".format(
+                                name,
+                                _get_error_message(deployed_cr),
+                            )
+                        )
+                        break
+
+                    time.sleep(5)
+                    response = (
+                        client.apis.kubernetes.get_namespaced_custom_object(
+                            name,
+                            namespace,
+                            group=DAG_API_GROUP,
+                            version=DAG_API_VERSION,
+                            plural=DAG_RESOURCE_KIND_PLURAL,
+                        )
+                    )
+                    deployed_cr = CustomResource.decode(
+                        DagCustomResource, response
+                    )
+        else:
+            client.stdout(
+                "Updating {0} in namespace `{1}`".format(name, namespace)
+            )
+            while not _is_dag_ready(deployed_cr):
+                if _is_dag_in_error(deployed_cr):
+                    client.stdout(
+                        "{0} is in error state:{1}".format(
+                            name,
+                            _get_error_message(deployed_cr),
+                        )
+                    )
+                    break
+
+                time.sleep(5)
+                response = client.apis.kubernetes.get_namespaced_custom_object(
+                    name,
+                    namespace,
+                    group=DAG_API_GROUP,
+                    version=DAG_API_VERSION,
+                    plural=DAG_RESOURCE_KIND_PLURAL,
+                )
+                deployed_cr = CustomResource.decode(DagCustomResource, response)
+
+        if _is_dag_ready(deployed_cr):
+            client.stdout("{0} is Ready".format(name))
 
     except Exception as e:
         raise CLIError(e)
@@ -1897,11 +1579,12 @@ def _create_service_certificate(
     certificate_public_key_file,
     certificate_private_key_file,
     service_certificate_secret,
-    is_update = False):
+    is_update=False,
+):
     """
     Creates service certificate based on parameters.
     """
-    
+
     # Handle certificate secret related parameters.
     #
     # Cases:
@@ -2004,17 +1687,13 @@ def _create_service_certificate(
                 #  (\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*'
                 #
                 service_certificate_secret = (
-                    default_service_certificate_secret_name
-                    + "-"
-                    + timestamp
+                    default_service_certificate_secret_name + "-" + timestamp
                 )
 
-                certificate_secret_exists = (
-                    check_secret_exists_with_retries(
-                        client.apis.kubernetes,
-                        cr.metadata.namespace,
-                        service_certificate_secret,
-                    )
+                certificate_secret_exists = check_secret_exists_with_retries(
+                    client.apis.kubernetes,
+                    cr.metadata.namespace,
+                    service_certificate_secret,
                 )
 
             # Set flag to create new secret.
@@ -2027,7 +1706,9 @@ def _create_service_certificate(
         #
         else:
             certificate_secret_exists = check_secret_exists_with_retries(
-                client.apis.kubernetes, cr.metadata.namespace, service_certificate_secret
+                client.apis.kubernetes,
+                cr.metadata.namespace,
+                service_certificate_secret,
             )
 
             # Case 2.2.1. If secret does not exist, then create it.
@@ -2044,8 +1725,9 @@ def _create_service_certificate(
             #
             else:
                 raise ValueError(
-                    CERT_ARGUMENT_ERROR_TEMPLATE
-                        .format(service_certificate_secret)
+                    CERT_ARGUMENT_ERROR_TEMPLATE.format(
+                        service_certificate_secret
+                    )
                 )
 
     # Case 3. When both certificate_public_key_file and
@@ -2068,7 +1750,7 @@ def _create_service_certificate(
             certificate_secret_exists = check_secret_exists_with_retries(
                 client.apis.kubernetes,
                 cr.metadata.namespace,
-                service_certificate_secret
+                service_certificate_secret,
             )
 
             # Case 3.2.1. If the secret exists, validate and use it.
@@ -2117,9 +1799,7 @@ def _create_service_certificate(
         # Set the secret name on custom resource spec to indicate to the
         # operator that we will use certificate from the Kubernetes secret.
         #
-        cr.spec.security.serviceCertificateSecret = (
-            service_certificate_secret
-        )
+        cr.spec.security.serviceCertificateSecret = service_certificate_secret
 
     # If we decided to use an existing secret, validate it and pass on.
     #
@@ -2130,12 +1810,30 @@ def _create_service_certificate(
         validate_certificate_secret(
             client.apis.kubernetes,
             cr.metadata.namespace,
-            service_certificate_secret
+            service_certificate_secret,
         )
 
         # Set the secret name on the custom resource spec to indicate to the
         # operator that a user provided certificate is available to use.
         #
-        cr.spec.security.serviceCertificateSecret = (
-            service_certificate_secret
-        )
+        cr.spec.security.serviceCertificateSecret = service_certificate_secret
+
+
+def _is_dag_ready(cr):
+    """
+    Verify that the SQL Mi DAG is ready
+    :param cr: Instance to check the readiness of
+    :return: True if the instance is ready, False otherwise
+    """
+    return (
+        cr.status.state is not None and cr.status.state.lower() == "succeeded"
+    )
+
+
+def _is_dag_in_error(cr):
+    """
+    Check that the SQL Mi instance is in error state
+    :param cr: Instance to check the readiness of
+    :return: True if the instance is in error, False otherwise
+    """
+    return cr.status.state is not None and cr.status.state.lower() == "failed"

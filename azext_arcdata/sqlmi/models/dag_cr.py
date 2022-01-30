@@ -44,7 +44,7 @@ class DagCustomResource(CustomResource):
                 remoteName: str = None,
                 remoteEndpoint: str = None,
                 remotePublicCert: str = None,
-                isLocalPrimary: bool = None,
+                role: str = None,
             ):
 
                 self.dagName = dagName
@@ -52,7 +52,7 @@ class DagCustomResource(CustomResource):
                 self.remoteName = remoteName
                 self.remoteEndpoint = remoteEndpoint
                 self.remotePublicCert = remotePublicCert
-                self.isLocalPrimary = isLocalPrimary
+                self.role = role
 
             @property
             def dagName(self) -> str:
@@ -95,12 +95,12 @@ class DagCustomResource(CustomResource):
                 self._remoteCertHexEncoded = rc
 
             @property
-            def isLocalPrimary(self) -> bool:
-                return self._isLocalPrimary
+            def role(self) -> str:
+                return self._role
 
-            @isLocalPrimary.setter
-            def isLocalPrimary(self, ip: bool):
-                self._isLocalPrimary = ip
+            @role.setter
+            def role(self, r: str):
+                self._role = r
 
             def _hydrate(self, d: dict):
                 if "dagName" in d:
@@ -113,8 +113,8 @@ class DagCustomResource(CustomResource):
                     self.remoteEndpoint = d["remoteEndpoint"]
                 if "remotePublicCert" in d:
                     self.remotePublicCert = d["remotePublicCert"]
-                if "isLocalPrimary" in d:
-                    self.isLocalPrimary = d["isLocalPrimary"]
+                if "role" in d:
+                    self.role = d["role"]
 
             def _to_dict(self) -> dict:
                 return {
@@ -123,7 +123,7 @@ class DagCustomResource(CustomResource):
                     "remoteName": self.remoteName,
                     "remoteEndpoint": self.remoteEndpoint,
                     "remotePublicCert": self.remotePublicCert,
-                    "isLocalPrimary": self.isLocalPrimary,
+                    "role": self.role,
                 }
 
         @property
@@ -185,6 +185,14 @@ class DagCustomResource(CustomResource):
             self._state = rp
 
         @property
+        def role(self) -> str:
+            return self._role
+
+        @role.setter
+        def role(self, rp: str):
+            self._role = rp
+
+        @property
         def results(self) -> str:
             return self._results
 
@@ -199,6 +207,8 @@ class DagCustomResource(CustomResource):
             super()._hydrate(d)
             if "state" in d:
                 self.state = d["state"]
+            if "role" in d:
+                self.role = d["role"]
             if "results" in d:
                 self.results = d["results"]
 
@@ -208,6 +218,7 @@ class DagCustomResource(CustomResource):
             """
             base = super()._to_dict()
             base["state"] = getattr(self, "state", None)
+            base["role"] = getattr(self, "role", None)
             base["results"] = getattr(self, "results", None)
             return base
 

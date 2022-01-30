@@ -16,7 +16,7 @@ from azext_arcdata.core.constants import (
     METRICSUI_USERNAME,
     METRICSUI_PASSWORD,
     PASSWORD_MIN_LENGTH,
-    PASSWORD_REQUIRED_GROUPS
+    PASSWORD_REQUIRED_GROUPS,
 )
 from knack.log import get_logger
 from knack.cli import CLIError
@@ -41,6 +41,7 @@ import yaml
 import pem
 
 logger = get_logger(__name__)
+
 
 def is_windows():
     """
@@ -115,10 +116,8 @@ def get_controller_env_list() -> List[str]:
     Get the list of environment variables required for the controller
     """
 
-    return [
-        AZDATA_USERNAME,
-        AZDATA_PASSWORD
-    ]
+    return [AZDATA_USERNAME, AZDATA_PASSWORD]
+
 
 def get_environment_list_by_target(target):
     """
@@ -165,7 +164,8 @@ def read_environment_variables(target, arc=False):
         """
         return env.strip().replace("_", " ").capitalize()
 
-    if (os.environ.get(LOGSUI_USERNAME)
+    if (
+        os.environ.get(LOGSUI_USERNAME)
         and os.environ.get(LOGSUI_PASSWORD)
         and os.environ.get(METRICSUI_USERNAME)
         and os.environ.get(METRICSUI_PASSWORD)
@@ -175,7 +175,7 @@ def read_environment_variables(target, arc=False):
     for env in get_controller_env_list():
         msg = "{}:".format(display_env_name(env))
         if not os.environ.get(env):
-            
+
             if "PASSWORD" in env:
                 if arc and env == AZDATA_PASSWORD:
                     msg = "Monitoring administrator password:"
@@ -187,12 +187,14 @@ def read_environment_variables(target, arc=False):
 
             os.environ[env] = result.strip()
 
+
 def is_set(env_var: str) -> bool:
     """
     Checks if the given environment variable is set and not empty/whitespace
     """
     var = os.getenv(env_var)
     return var is not None and len(var.strip()) != 0
+
 
 def check_environment_variables(target):
     """
@@ -211,6 +213,7 @@ def check_environment_variables(target):
         )
         sys.exit(1)
 
+
 def env_vars_are_set(vars: List[str]) -> bool:
     """
     Checks if the given list of environment variables are set or not.
@@ -221,6 +224,7 @@ def env_vars_are_set(vars: List[str]) -> bool:
             return False
 
     return True
+
 
 def read_config(config_profile, config_filename):
     """
@@ -582,17 +586,20 @@ def log_error(error_message, error_detail):
     :param error_detail : Error info
     """
 
-    logger.error(
-        error_message + " : " + error_detail + ". More detail can be found in "
-        "the az.log file"
-    )
+    logger.error(error_message + " : " + error_detail)
 
 
-def retry_method(retry_count: int, retry_delay: int, retry_method_description: str, retry_on_exceptions: tuple):
+def retry_method(
+    retry_count: int,
+    retry_delay: int,
+    retry_method_description: str,
+    retry_on_exceptions: tuple,
+):
     def retry_method_wrapper(f):
         """
         Decorator wraps the method with retry logic.  See retry
         """
+
         @wraps(f)
         def wrapper(*args, **kwargs):
             return retry(
@@ -600,9 +607,11 @@ def retry_method(retry_count: int, retry_delay: int, retry_method_description: s
                 retry_count=retry_count,
                 retry_delay=retry_delay,
                 retry_method=retry_method_description,
-                retry_on_exceptions=retry_on_exceptions
+                retry_on_exceptions=retry_on_exceptions,
             )
+
         return wrapper
+
     return retry_method_wrapper
 
 
@@ -639,7 +648,9 @@ def retry(func, *func_args, **kwargs):
             continue
     logger.debug(exception_caused)
     log_error(
-        str(_.get(exception_caused, ["reason", "__context__"], exception_caused)),
+        str(
+            _.get(exception_caused, ["reason", "__context__"], exception_caused)
+        ),
         "Failed to %s after retrying for %d minute(s)."
         % (retry_method, (retry_count * retry_delay) / 60),
     )
@@ -711,6 +722,7 @@ def name_meets_dns_requirements(n: str):
 
     return True
 
+
 def is_valid_password(pw, user):
     """
     Checks if the provided pw is a sufficiently complex password i.e. is at least
@@ -754,31 +766,30 @@ def is_valid_password(pw, user):
 
     return (lower + upper + special + digit) >= PASSWORD_REQUIRED_GROUPS
 
+
 def validate_creds_from_env(username_var: str, password_var: str):
-            """
-            Ensures that both or neither of the username and password
-            environment variables are set and that passwords meet complexity
-            requirements
-            """
-            username = os.environ.get(username_var)
-            password = os.environ.get(password_var)
-            if bool(username) ^ bool(password):
-                raise CLIError(
-                    "Must specify both {0} and {1} or neither.".format(
-                        username_var,
-                        password_var
-                    )
-                )
-            elif (username and password 
-                and not is_valid_password(password, username)):
-                raise CLIError( "Invalid password from " 
-                                + password_var
-                                + ". Passwords must be at "
-                                "least 8 characters long, cannot contain the "
-                                "username, and must contain characters from "
-                                "three of the following four sets: Uppercase "
-                                "letters, Lowercase letters, Base 10 digits, "
-                                "and Symbols. Please try again.\n")
+    """
+    Ensures that both or neither of the username and password
+    environment variables are set and that passwords meet complexity
+    requirements
+    """
+    username = os.environ.get(username_var)
+    password = os.environ.get(password_var)
+    if bool(username) ^ bool(password):
+        raise CLIError(
+            "Must specify both {0} and {1} or neither.".format(
+                username_var, password_var
+            )
+        )
+    elif username and password and not is_valid_password(password, username):
+        raise CLIError(
+            "Invalid password from " + password_var + ". Passwords must be at "
+            "least 8 characters long, cannot contain the "
+            "username, and must contain characters from "
+            "three of the following four sets: Uppercase "
+            "letters, Lowercase letters, Base 10 digits, "
+            "and Symbols. Please try again.\n"
+        )
 
 
 def prune_dict(d):
@@ -1335,9 +1346,10 @@ def get_yaml_from_template(template_file, model):
         )
     )
 
+
 def parse_cert_files(
-    certificate_public_key_file: str, 
-    certificate_private_key_file: str) -> Tuple[str, str]:
+    certificate_public_key_file: str, certificate_private_key_file: str
+) -> Tuple[str, str]:
     """
     parses certificate and private key files and returns the values.
     """
@@ -1416,7 +1428,10 @@ def parse_cert_files(
 
     return cert_public_key, cert_private_key
 
-def generate_certificate_and_key(hostname: str, common_name: str, sans: List[str] = []) -> Tuple:
+
+def generate_certificate_and_key(
+    hostname: str, common_name: str, sans: List[str] = []
+) -> Tuple:
     """
     Generates an RSA public/private key pair and uses them to create
     a self-signed server certificate.
@@ -1428,34 +1443,35 @@ def generate_certificate_and_key(hostname: str, common_name: str, sans: List[str
     from cryptography.x509.oid import NameOID
     from cryptography import x509
     from datetime import datetime, timedelta
+
     # Generate public/private key pair
     #
     key_pair = rsa.generate_private_key(
-        backend=default_backend(),
-        key_size=2048,
-        public_exponent=65537
+        backend=default_backend(), key_size=2048, public_exponent=65537
     )
 
     cn = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
-    additional_sans = x509.SubjectAlternativeName([x509.DNSName(name) for name in sans])
+    additional_sans = x509.SubjectAlternativeName(
+        [x509.DNSName(name) for name in sans]
+    )
 
     cert = (
         x509.CertificateBuilder()
-            .subject_name(x509.Name(cn))
-            .issuer_name(cn)
-            .serial_number(1001)
-            .not_valid_before(datetime.utcnow())
-            .not_valid_after(datetime.now() + timedelta(days=5*365))
-            .public_key(key_pair.public_key())
-            .add_extension(additional_sans, False)
-            .sign(key_pair, hashes.SHA256(), default_backend())
+        .subject_name(x509.Name(cn))
+        .issuer_name(cn)
+        .serial_number(1001)
+        .not_valid_before(datetime.utcnow())
+        .not_valid_after(datetime.now() + timedelta(days=5 * 365))
+        .public_key(key_pair.public_key())
+        .add_extension(additional_sans, False)
+        .sign(key_pair, hashes.SHA256(), default_backend())
     )
-    
+
     cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
     key_pem = key_pair.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption()
+        encryption_algorithm=serialization.NoEncryption(),
     )
 
     return cert_pem, key_pem, cert.fingerprint(hashes.SHA256())

@@ -73,5 +73,9 @@ def load_commands(self, _):
         "sql mi-arc dag", operations, client_factory=beget
     ) as g:
         g.command("create", "arc_sql_mi_dag_create")
+        g.command("update", "arc_sql_mi_dag_update")
         g.command("delete", "arc_sql_mi_dag_delete")
         g.show_command("show", "arc_sql_mi_dag_show")
+
+    with self.command_group("sql mi-arc dag", is_preview=True):
+        pass

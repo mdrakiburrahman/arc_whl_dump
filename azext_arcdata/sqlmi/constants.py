@@ -6,7 +6,7 @@
 
 import os
 
-from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V2
+from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V3
 
 RESOURCE_KIND = "SqlManagedInstance"
 """
@@ -23,7 +23,7 @@ API_GROUP = "sql.arcdata.microsoft.com"
 Defines the API group.
 """
 
-API_VERSION = ARC_API_V2
+API_VERSION = ARC_API_V3
 """
 Defines the API version.
 """
@@ -60,26 +60,37 @@ SQLMI_LICENSE_TYPE_LICENSE_INCLUDED = "LicenseIncluded"
 SQLMI_LICENSE_TYPE_LICENSE_INCLUDED_AZURE = (
     SQLMI_LICENSE_TYPE_LICENSE_INCLUDED  # the format expected by ARM RP
 )
+SQLMI_LICENSE_TYPE_DISASTER_RECOVERY = "DisasterRecovery"
+SQLMI_LICENSE_TYPE_DISASTER_RECOVERY_AZURE = (
+    SQLMI_LICENSE_TYPE_DISASTER_RECOVERY  # the format expected by ARM RP
+)
 SQLMI_LICENSE_TYPES = set(
-    [SQLMI_LICENSE_TYPE_BASE_PRICE, SQLMI_LICENSE_TYPE_LICENSE_INCLUDED]
+    [
+        SQLMI_LICENSE_TYPE_BASE_PRICE,
+        SQLMI_LICENSE_TYPE_LICENSE_INCLUDED,
+        SQLMI_LICENSE_TYPE_DISASTER_RECOVERY,
+    ]
 )
 
 # message to display allowed values when creating an instance
 SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG_CREATE = (
-    "Allowed values are: {0}, {1}. "
-    "Default is {2}. The license "
-    "type cannot be changed.".format(
+    "Allowed values are: {0}, {1}, {2}."
+    "Default is {3}. The license "
+    "type can be changed.".format(
         SQLMI_LICENSE_TYPE_BASE_PRICE,
         SQLMI_LICENSE_TYPE_LICENSE_INCLUDED,
+        SQLMI_LICENSE_TYPE_DISASTER_RECOVERY,
         SQLMI_LICENSE_TYPE_LICENSE_INCLUDED,
     )
 )
 
 # generic message to display allowed values
 SQLMI_LICENSE_TYPE_ALLOWED_VALUES_MSG = (
-    "Allowed values are: {0}, {1}. "
+    "Allowed values are: {0}, {1}, {2}. "
     "Default is {1}.".format(
-        SQLMI_LICENSE_TYPE_BASE_PRICE, SQLMI_LICENSE_TYPE_LICENSE_INCLUDED
+        SQLMI_LICENSE_TYPE_BASE_PRICE,
+        SQLMI_LICENSE_TYPE_LICENSE_INCLUDED,
+        SQLMI_LICENSE_TYPE_DISASTER_RECOVERY,
     )
 )
 SQLMI_LICENSE_TYPE_DEFAULT = SQLMI_LICENSE_TYPE_LICENSE_INCLUDED
@@ -193,3 +204,49 @@ SQLMI_DIRECT_MODE_OUTPUT_SPEC = os.path.join(
 """
 File location for sqlmi direct mode SPEC output.
 """
+
+
+DAG_ROLE_PRIMARY = "primary"
+DAG_ROLE_SECONDARY = "secondary"
+DAG_ROLE_FORCE_PRIMARY = "force-primary-allow-data-loss"
+DAG_ROLE_FORCE_SECONDARY = "force-secondary"
+
+DAG_ROLES_ALL = set(
+    [
+        DAG_ROLE_PRIMARY,
+        DAG_ROLE_SECONDARY,
+        DAG_ROLE_FORCE_PRIMARY,
+        DAG_ROLE_FORCE_SECONDARY,
+    ]
+)
+
+DAG_ROLES_CREATE = set(
+    [
+        DAG_ROLE_PRIMARY,
+        DAG_ROLE_SECONDARY,
+    ]
+)
+
+DAG_ROLES_UPDATE = set(
+    [
+        DAG_ROLE_SECONDARY,
+        DAG_ROLE_FORCE_PRIMARY,
+        DAG_ROLE_FORCE_SECONDARY,
+    ]
+)
+
+DAG_ROLES_ALLOWED_VALUES_MSG_CREATE = (
+    "Allowed values are: {0}, {1}. "
+    "role can be changed.".format(
+        DAG_ROLE_PRIMARY,
+        DAG_ROLE_SECONDARY,
+    )
+)
+
+DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE = (
+    "Role can only be changed to: {0}, {1}, {2}. ".format(
+        DAG_ROLE_SECONDARY,
+        DAG_ROLE_FORCE_PRIMARY,
+        DAG_ROLE_FORCE_SECONDARY,
+    )
+)

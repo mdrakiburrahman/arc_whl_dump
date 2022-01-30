@@ -14,7 +14,7 @@
       "docker": {
          "registry": "mcr.microsoft.com",
          "repository": "arcdata",
-         "imageTag": "v1.2.0_2021-12-15",
+         "imageTag": "v1.3.0_2022-01-27",
          "imagePullPolicy": "Always"
       },
       "storage": {

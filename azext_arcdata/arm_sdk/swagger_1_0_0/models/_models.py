@@ -996,7 +996,7 @@ class SqlManagedInstanceProperties(msrest.serialization.Model):
     :ivar provisioning_state:
     :vartype provisioning_state: str
     :param license_type: The license type to apply for this managed instance. Possible values
-     include: "BasePrice", "LicenseIncluded". Default value: "BasePrice".
+     include: "BasePrice", "LicenseIncluded", "DisasterRecovery". Default value: "BasePrice".
     :type license_type: str or
      ~azure_arc_data_management_client.models.ArcSqlManagedInstanceLicenseType
     :param cluster_id: If a CustomLocation is provided, this contains the ARM id of the connected
