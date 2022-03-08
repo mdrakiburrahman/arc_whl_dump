@@ -10,6 +10,7 @@ from azext_arcdata.kubernetes_sdk.models.data_controller_volume import (
 )
 from azext_arcdata.kubernetes_sdk.models.security_spec import SecuritySpec
 from azext_arcdata.kubernetes_sdk.models.endpoint_spec import EndpointSpec
+from azext_arcdata.kubernetes_sdk.models.monitoring_spec import MonitoringSpec
 from azext_arcdata.core.util import name_meets_dns_requirements
 from azext_arcdata.core.class_utils import enforcetype
 from azext_arcdata.core.labels import parse_labels
@@ -97,6 +98,7 @@ class DataControllerCustomResource(CustomResource):
             self.controllerServices = []
             self.settings = {}
             self.security = SecuritySpec()
+            self.monitoring = MonitoringSpec()
             self.credentials = self.Credentials()
             self.update = Update()
             self.infrastructure = infrastructure
@@ -232,6 +234,15 @@ class DataControllerCustomResource(CustomResource):
             self._security = s
 
         @property
+        def monitoring(self) -> MonitoringSpec:
+            return self._monitoring
+
+        @monitoring.setter
+        @enforcetype(MonitoringSpec)
+        def monitoring(self, m: MonitoringSpec):
+            self._monitoring = m
+
+        @property
         def controllerServices(self) -> list:
             return self._controller_services
 
@@ -268,6 +279,7 @@ class DataControllerCustomResource(CustomResource):
             base["services"] = controller_services
             base["settings"] = getattr(self, "settings", None)
             base["security"] = self.security._to_dict()
+            base["monitoring"] = self.monitoring._to_dict()
             base["update"] = self.update._to_dict()
             base["infrastructure"] = self.infrastructure
             return base
@@ -285,6 +297,9 @@ class DataControllerCustomResource(CustomResource):
 
             if "security" in d:
                 self.security._hydrate(d["security"])
+
+            if "monitoring" in d:
+                self.monitoring._hydrate(d["monitoring"])
 
             if "settings" in d:
                 self.settings = d["settings"]
@@ -311,7 +326,6 @@ class DataControllerCustomResource(CustomResource):
         def phase(self, p):
             self._phase = p
 
-        
     def _to_dict(self) -> dict:
         return super()._to_dict()
 

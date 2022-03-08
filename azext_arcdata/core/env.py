@@ -77,6 +77,36 @@ class Env(object):
             os.environ[vars[1]] = prompt_pass(msg.strip() + " password: ", True)
 
     @staticmethod
+    def _validate_creds_from_env(username_var: str, password_var: str):
+        """
+        Ensures that both or neither of the username and password
+        environment variables are set and that passwords meet complexity
+        requirements
+        """
+
+        username = os.environ.get(username_var)
+        password = os.environ.get(password_var)
+        if bool(username) ^ bool(password):
+            raise ValueError(
+                "Must specify both {0} and {1} or neither.".format(
+                    username_var, password_var
+                )
+            )
+        elif (
+            username and password and not is_valid_password(password, username)
+        ):
+            raise ValueError(
+                "Invalid password from "
+                + password_var
+                + ". Passwords must be at "
+                "least 8 characters long, cannot contain the "
+                "username, and must contain characters from "
+                "three of the following four sets: Uppercase "
+                "letters, Lowercase letters, Base 10 digits, "
+                "and Symbols. Please try again.\n"
+            )
+
+    @staticmethod
     def get_sqlmi_credentials():
         default_vars = [const.AZDATA_USERNAME, const.AZDATA_PASSWORD]
         if not Env.env_vars_are_set(default_vars):
@@ -91,6 +121,11 @@ class Env(object):
                         const.AZDATA_USERNAME, const.AZDATA_PASSWORD
                     )
                 )
+
+        os.environ[default_vars[0]] = os.getenv(default_vars[0]).strip()
+        os.environ[default_vars[1]] = os.getenv(default_vars[1]).strip()
+
+        Env._validate_creds_from_env(default_vars[0], default_vars[1])
 
         args = {
             "username": os.getenv(default_vars[0]),
@@ -122,45 +157,14 @@ class Env(object):
                 )
             )
 
-        def _validate_creds_from_env(username_var: str, password_var: str):
-            """
-            Ensures that both or neither of the username and password
-            environment variables are set and that passwords meet complexity
-            requirements
-            """
-
-            username = os.environ.get(username_var)
-            password = os.environ.get(password_var)
-            if bool(username) ^ bool(password):
-                raise ValueError(
-                    "Must specify both {0} and {1} or neither.".format(
-                        username_var, password_var
-                    )
-                )
-            elif (
-                username
-                and password
-                and not is_valid_password(password, username)
-            ):
-                raise ValueError(
-                    "Invalid password from "
-                    + password_var
-                    + ". Passwords must be at "
-                    "least 8 characters long, cannot contain the "
-                    "username, and must contain characters from "
-                    "three of the following four sets: Uppercase "
-                    "letters, Lowercase letters, Base 10 digits, "
-                    "and Symbols. Please try again.\n"
-                )
-
         # Raise error if only one part of a credential is set
         #
         logs_vars = [const.LOGSUI_USERNAME, const.LOGSUI_PASSWORD]
         metrics_vars = [const.METRICSUI_USERNAME, const.METRICSUI_PASSWORD]
         default_vars = [const.AZDATA_USERNAME, const.AZDATA_PASSWORD]
 
-        _validate_creds_from_env(logs_vars[0], logs_vars[1])
-        _validate_creds_from_env(metrics_vars[0], metrics_vars[1])
+        Env._validate_creds_from_env(logs_vars[0], logs_vars[1])
+        Env._validate_creds_from_env(metrics_vars[0], metrics_vars[1])
 
         if not (
             Env.env_vars_are_set(logs_vars)
@@ -195,7 +199,7 @@ class Env(object):
                                 const.AZDATA_USERNAME, const.AZDATA_PASSWORD
                             )
                         )
-                _validate_creds_from_env(default_vars[0], default_vars[1])
+                Env._validate_creds_from_env(default_vars[0], default_vars[1])
 
         logs_vars = [const.LOGSUI_USERNAME, const.LOGSUI_PASSWORD]
         metrics_vars = [const.METRICSUI_USERNAME, const.METRICSUI_PASSWORD]

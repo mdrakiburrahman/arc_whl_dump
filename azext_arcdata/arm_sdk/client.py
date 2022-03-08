@@ -4,7 +4,8 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from typing import Callable
+from ._util import dict_to_dot_notation
+from ._arm_client import ARMTemplateClient
 from .swagger_1_0_0 import AzureArcDataManagementClient
 from .swagger_1_0_0.models import (
     DataControllerResource,
@@ -22,9 +23,11 @@ from .swagger_1_0_0.models import (
 )
 
 from azext_arcdata.core.env import Env
-import azure.core.exceptions as exceptions
+from azext_arcdata.core.prompt import prompt_assert
 from knack.log import get_logger
-from azext_arcdata.dc.azure.constants import API_VERSION
+from typing import Callable
+
+import azure.core.exceptions as exceptions
 import os
 import json
 import time
@@ -41,10 +44,71 @@ class ArmClient(object):
         self._azure_credential = azure_credential
         self._bearer = azure_credential.get_token().token
         self._subscription_id = subscription_id
-        self._arm_client = AzureArcDataManagementClient(
+        self._mgmt_client = AzureArcDataManagementClient(
             credential=self._azure_credential,
             subscription_id=self._subscription_id,
         )
+        self._arm_tpl_client = ARMTemplateClient(
+            self._bearer, self._subscription_id
+        )
+
+    def create_3_in_1_dc(
+        self,
+        resource_group,
+        name,
+        location,
+        custom_location,
+        connectivity_mode,
+        cluster,
+        namespace,
+        path=None,
+        storage_class=None,
+        infrastructure=None,
+        labels=None,
+        annotations=None,
+        service_annotations=None,
+        service_labels=None,
+        storage_labels=None,
+        storage_annotations=None,
+        auto_upload_metrics=None,
+        auto_upload_logs=None,
+        polling=True,
+    ):
+        try:
+            # -- check existing dc to avoid dc recreate --
+            for dc in self.list_dc(resource_group):
+                if dc.name == name:
+                    raise Exception(
+                        f"A Data Controller {name} has already been created."
+                    )
+
+            config_file = os.path.join(path, "control.json")
+            logger.debug("Configuration profile: %s", config_file)
+
+            with open(config_file, encoding="utf-8") as input_file:
+                control = dict_to_dot_notation(json.load(input_file))
+
+            return self._arm_tpl_client.create_dc(
+                control,
+                Env.get_log_and_metrics_credentials(),
+                resource_group,
+                name,
+                location,
+                custom_location,
+                connectivity_mode,
+                cluster,
+                namespace,
+                storage_class=storage_class,
+                infrastructure=infrastructure,
+                auto_upload_metrics=auto_upload_metrics,
+                auto_upload_logs=auto_upload_logs,
+            )
+
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
 
     def create_dc(
         self,
@@ -128,6 +192,14 @@ class ArmClient(object):
                 k8s["spec"]["storage"]["data"]["className"] = storage_class
                 k8s["spec"]["storage"]["logs"]["className"] = storage_class
 
+            if (
+                not k8s["spec"]["storage"]["data"]["className"]
+                or not k8s["spec"]["storage"]["logs"]["className"]
+            ):
+                storage_class = prompt_assert("Storage class: ")
+                k8s["spec"]["storage"]["data"]["className"] = storage_class
+                k8s["spec"]["storage"]["logs"]["className"] = storage_class
+
             # Populate the arm request body
             k8s["spec"]["settings"]["controller"]["displayName"] = name
             k8s["spec"]["settings"]["azure"][
@@ -184,7 +256,7 @@ class ArmClient(object):
             logger.debug(json.dumps(d, indent=4))
 
             result = (
-                self._arm_client.data_controllers.begin_put_data_controller(
+                self._mgmt_client.data_controllers.begin_put_data_controller(
                     resource_group_name=resource_group,
                     data_controller_name=name,
                     data_controller_resource=data_controller_resource,
@@ -231,7 +303,7 @@ class ArmClient(object):
     def delete_dc(self, resource_group, name, polling=True):
         try:
             result = (
-                self._arm_client.data_controllers.begin_delete_data_controller(
+                self._mgmt_client.data_controllers.begin_delete_data_controller(
                     resource_group_name=resource_group,
                     data_controller_name=name,
                     polling=polling,
@@ -247,7 +319,7 @@ class ArmClient(object):
 
     def get_dc(self, resource_group, name):
         try:
-            result = self._arm_client.data_controllers.get_data_controller(
+            result = self._mgmt_client.data_controllers.get_data_controller(
                 resource_group_name=resource_group,
                 data_controller_name=name,
             )
@@ -299,7 +371,7 @@ class ArmClient(object):
             )
 
             result = (
-                self._arm_client.data_controllers.begin_put_data_controller(
+                self._mgmt_client.data_controllers.begin_put_data_controller(
                     resource_group_name=resource_group,
                     data_controller_name=name,
                     data_controller_resource=data_controller_resource,
@@ -349,7 +421,7 @@ class ArmClient(object):
     def update_dc(self, rg_name, dc_name, properties: dict):
         try:
             # get_dc  then mixin properties
-            result = self._arm_client.data_controllers.patch_data_controller(
+            result = self._mgmt_client.data_controllers.patch_data_controller(
                 resource_group_name=rg_name,
                 data_controller_name=dc_name,
                 data_controller_resource=properties,
@@ -364,7 +436,7 @@ class ArmClient(object):
 
     def list_dc(self, rg_name):
         try:
-            result = self._arm_client.data_controllers.list_in_group(rg_name)
+            result = self._mgmt_client.data_controllers.list_in_group(rg_name)
 
             return result
         except exceptions.HttpResponseError as e:
@@ -386,6 +458,7 @@ class ArmClient(object):
         resource_group,
         path=None,
         replicas=None,
+        readable_secondaries=None,
         cores_limit=None,
         cores_request=None,
         memory_limit=None,
@@ -403,13 +476,11 @@ class ArmClient(object):
         dev=None,
         polling=True,
         # -- Not Support for now --
-        # no_wait=False,
         # noexternal_endpoint=None,
         # certificate_public_key_file=None,
         # certificate_private_key_file=None,
         # service_certificate_secret=None,
         # admin_login_secret=None,
-        # use_k8s=None,
         # collation=None,
         # language=None,
         # agent_enabled=None,
@@ -422,7 +493,6 @@ class ArmClient(object):
         # service_annotations=None,
         # storage_labels=None,
         # storage_annotations=None,
-        # namespace=None,
     ):
         try:
             # -- check existing sqlmi's to avoid duplicate sqlmi create --
@@ -445,16 +515,12 @@ class ArmClient(object):
             SQLMI_SPEC_MERGE = os.path.join(
                 TEMPLATE_DIR, "sqlmi-create-properties.json"
             )
-            config_file = path or SQLMI_SPEC_MERGE
-            with open(config_file, encoding="utf-8") as input_file:
+            with open(path or SQLMI_SPEC_MERGE, encoding="utf-8") as input_file:
                 all_prop = json.load(input_file)
                 logger.debug(json.dumps(all_prop, indent=4))
             k8s = all_prop["properties"]["k8sRaw"]
 
-            # Fill in the updates from here
-            #
-            if replicas:
-                k8s["spec"]["replicas"] = replicas
+            # -- storage --
             if storage_class_data:
                 k8s["spec"]["storage"]["data"]["volumes"][0][
                     "className"
@@ -487,8 +553,14 @@ class ArmClient(object):
                 k8s["spec"]["storage"]["backups"]["volumes"][0][
                     "size"
                 ] = volume_size_backups
-            if license_type:
-                all_prop["properties"]["licenseType"] = license_type
+
+            # ==== Billing ====================================================
+
+            # -- dev --
+            if dev:
+                k8s["spec"]["dev"] = True
+
+            # -- scheduling --
             if cores_limit:
                 k8s["spec"]["scheduling"]["default"]["resources"]["limits"][
                     "cpu"
@@ -505,98 +577,23 @@ class ArmClient(object):
                 k8s["spec"]["scheduling"]["default"]["resources"]["requests"][
                     "memory"
                 ] = memory_request
+
+            # -- replicas --
+            if replicas:
+                k8s["spec"]["replicas"] = replicas
+
+            # -- readable secondaries --
+            if readable_secondaries:
+                k8s["spec"]["readableSecondaries"] = int(readable_secondaries)
+
+            # -- license type --
+            if license_type:
+                all_prop["properties"]["licenseType"] = license_type
+
+            # -- tier --
             if tier:
                 all_prop["sku"]["tier"] = tier
-            if dev and dev != k8s["spec"]["dev"]:
-                k8s["spec"]["dev"] = dev
 
-            # Other items which are either disappeared in the
-            # sqlmi_cr_model or azure.liquid template
-            #
-            # if noexternal_endpoint:
-            #     k8s["spec"]["others"][
-            #         "noexternalEndpoint"
-            #     ] = noexternal_endpoint
-            # if certificate_public_key_file:
-            #     k8s["spec"]["others"][
-            #         "certificatePublicKeyFile"
-            #     ] = certificate_public_key_file
-            # if certificate_private_key_file:
-            #     k8s["spec"]["others"][
-            #         "certificatePrivateKeyFile"
-            #     ] = certificate_private_key_file
-
-            # Parameters that are not supported for now since
-            # some of them may cause previsioning issues
-            #
-            # if admin_login_secret:
-            #     k8s["spec"]["security"][
-            #         "adminLoginSecret"
-            #     ] = admin_login_secret
-            # if service_certificate_secret:
-            #     # duplicated because the format between
-            #     # sqlmi_cr_model and azure.liquid template were unmatched.
-            #     #
-            #     k8s["spec"]["security"][
-            #         "serviceCertificateSecret"
-            #     ] = service_certificate_secret
-            #     k8s["spec"]["security"][
-            #         "securityserviceCertificateSecret"
-            #     ] = service_certificate_secret
-            # if namespace:
-            #     k8s["spec"]["metadata"]["namespace"] = namespace
-            # if labels:
-            #     k8s["spec"]["metadata"]["labels"] = labels
-            # if annotations:
-            #     k8s["spec"]["metadata"]["annotations"] = annotations
-            # if service_labels:
-            #     k8s["spec"]["services"]["primary"]["labels"] = service_labels
-            # if service_annotations:
-            #     k8s["spec"]["services"]["primary"][
-            #         "annotations"
-            #     ] = service_annotations
-            # if storage_labels:
-            #     k8s["spec"]["storage"]["data"]["volumes"][0][
-            #         "labels"
-            #     ] = storage_labels
-            #     k8s["spec"]["storage"]["logs"]["volumes"][0][
-            #         "labels"
-            #     ] = storage_labels
-            #     k8s["spec"]["storage"]["datalogs"]["volumes"][0][
-            #         "labels"
-            #     ] = storage_labels
-            #     k8s["spec"]["storage"]["backups"]["volumes"][0][
-            #         "labels"
-            #     ] = storage_labels
-            # if storage_annotations:
-            #     k8s["spec"]["storage"]["data"]["volumes"][0][
-            #         "annotations"
-            #     ] = storage_annotations
-            #     k8s["spec"]["storage"]["logs"]["volumes"][0][
-            #         "annotations"
-            #     ] = storage_annotations
-            #     k8s["spec"]["storage"]["datalogs"]["volumes"][0][
-            #         "annotations"
-            #     ] = storage_annotations
-            #     k8s["spec"]["storage"]["backups"]["volumes"][0][
-            #         "annotations"
-            #     ] = storage_annotations
-            # if collation:
-            #     k8s["spec"]["settings"]["collation"] = collation
-            # if language:
-            #     k8s["spec"]["settings"]["language"] = language
-            # if agent_enabled:
-            #     k8s["spec"]["settings"]["sqlagent"]["enabled"] = agent_enabled
-            # if time_zone:
-            #     k8s["spec"]["settings"]["timezone"] = time_zone
-            # if trace_flags:
-            #     k8s["spec"]["settings"]["traceFlags"] = True
-            # if retention_days:
-            #     k8s["spec"]["backup"]["retentionPeriodInDays"] = retention_days
-
-            # Use the dc config to set the sqlmi service type
-            # This is only a temp solution.
-            #
             all_dcs = self.list_dc(resource_group)
             dc_name_list = []
             dc_in_rg = {}
@@ -626,107 +623,9 @@ class ArmClient(object):
                     "namespace"
                 ] = dc_in_rg.properties.k8_s_raw["metadata"]["namespace"]
 
-            # Compose additional properties. Values have been verified in the set
-            #
-            safe_set = {
-                "storage",
-                "license_type",
-                "services",
-                "backup",
-                "settings",
-                "metadata",
-            }
-            additional_properties = {}
-            for key in k8s["spec"]:
-                if key in safe_set:
-                    additional_properties[key] = k8s["spec"][key]
-
-            # Compose scheduling
-            #
-            resources = K8SResourceRequirements(
-                limits={
-                    # "cpu":cores_limit,
-                    # "memory":memory_limit
-                    "cpu": k8s["spec"]["scheduling"]["default"]["resources"][
-                        "limits"
-                    ]["cpu"],
-                    "memory": k8s["spec"]["scheduling"]["default"]["resources"][
-                        "limits"
-                    ]["memory"],
-                },
-                requests={
-                    # "cpu":cores_request,
-                    # "memory":memory_request
-                    "cpu": k8s["spec"]["scheduling"]["default"]["resources"][
-                        "requests"
-                    ]["cpu"],
-                    "memory": k8s["spec"]["scheduling"]["default"]["resources"][
-                        "requests"
-                    ]["memory"],
-                },
-            )
-
-            default = K8SSchedulingOptions(resources=resources)
-
-            scheduling = K8SScheduling(default=default)
-
-            spec = SqlManagedInstanceK8SSpec(
-                additional_properties=additional_properties,
-                scheduling=scheduling,
-                replicas=k8s["spec"]["replicas"],
-            )
-
-            k8 = SqlManagedInstanceK8SRaw(spec=spec)
-
-            login = BasicLoginInformation(
-                username=cred.username,
-                password=cred.password,
-            )
-
-            properties = SqlManagedInstanceProperties(
-                data_controller_id=dc_in_rg.name,
-                admin="controlleradmin",
-                # admin = kwargs.get('admin', None),
-                # start_time = kwargs.get('start_time', None),
-                # end_time = kwargs.get('end_time', None),
-                k8_s_raw=k8,
-                basic_login_information=login,
-                # last_uploaded_date = kwargs.get('last_uploaded_date', None),
-                # provisioning_state = None,
-                license_type=all_prop["properties"]["licenseType"],
-                # cluster_id = kwargs.get('cluster_id', None),
-                # extension_id = kwargs.get('extension_id', None),
-            )
-
-            # -- extended-location --
-            #
-            extended_location = ExtendedLocation(
-                name=(
-                    "/subscriptions/"
-                    + self._subscription_id
-                    + "/resourcegroups/"
-                    + resource_group
-                    + "/providers/microsoft.extendedlocation/customlocations/"
-                    + custom_location
-                ),
-                type="CustomLocation",
-            )
-
-            # -- sku --
-            #
-            sql_managed_instance_sku = SqlManagedInstanceSku(
-                tier=all_prop["sku"]["tier"],
-                # dev=k8s["spec"]["dev"],
-                dev=None
-                # size = kwargs.get('size', None)
-                # family = kwargs.get('family', None)
-                # capacity = kwargs.get('capacity', None)
-            )
-
-            # -- Validation check --
+            # -- TODO: Remove Validation check --
             #
             self._is_valid_sqlmi_create(
-                replicas=k8s["spec"]["replicas"],
                 cores_limit=k8s["spec"]["scheduling"]["default"]["resources"][
                     "limits"
                 ]["cpu"],
@@ -755,17 +654,82 @@ class ArmClient(object):
                 tier=all_prop["sku"]["tier"],
             )
 
-            # -- Put everything together
+            # TODO: Remove Compose additional properties. Values have been
+            #  verified in the set
             #
+            safe_set = {
+                "dev",
+                "storage",
+                "license_type",
+                "services",
+                "backup",
+                "settings",
+                "metadata",
+                "dev",
+                "readableSecondaries",
+            }
+            additional_properties = {}
+            for key in k8s["spec"]:
+                if key in safe_set:
+                    additional_properties[key] = k8s["spec"][key]
+
+            resources = k8s["spec"]["scheduling"]["default"]["resources"]
+
+            # -- Build properties --
+            properties = SqlManagedInstanceProperties(
+                data_controller_id=dc_in_rg.name,
+                admin="controlleradmin",
+                basic_login_information=BasicLoginInformation(
+                    username=cred.username,
+                    password=cred.password,
+                ),
+                license_type=all_prop["properties"]["licenseType"],
+                k8_s_raw=SqlManagedInstanceK8SRaw(
+                    spec=SqlManagedInstanceK8SSpec(
+                        additional_properties=additional_properties,
+                        replicas=k8s["spec"]["replicas"],
+                        scheduling=K8SScheduling(
+                            default=K8SSchedulingOptions(
+                                resources=K8SResourceRequirements(
+                                    limits={
+                                        "cpu": resources["limits"]["cpu"],
+                                        "memory": resources["limits"]["memory"],
+                                    },
+                                    requests={
+                                        "cpu": resources["requests"]["cpu"],
+                                        "memory": resources["requests"][
+                                            "memory"
+                                        ],
+                                    },
+                                )
+                            )
+                        ),
+                    )
+                ),
+            )
+
+            # -- Build final mi request model --
             sql_managed_instance = SqlManagedInstance(
                 location=location,
                 properties=properties,
-                extended_location=extended_location,
-                sku=sql_managed_instance_sku,
+                extended_location=ExtendedLocation(
+                    name=(
+                        "/subscriptions/"
+                        + self._subscription_id
+                        + "/resourcegroups/"
+                        + resource_group
+                        + "/providers/microsoft.extendedlocation/"
+                        "customlocations/" + custom_location
+                    ),
+                    type="CustomLocation",
+                ),
+                sku=SqlManagedInstanceSku(
+                    tier=all_prop["sku"]["tier"], dev=None
+                ),
                 tags=all_prop["tags"],
             )
 
-            self._arm_client.sql_managed_instances.begin_create(
+            self._mgmt_client.sql_managed_instances.begin_create(
                 resource_group_name=resource_group,
                 sql_managed_instance_name=name,
                 sql_managed_instance=sql_managed_instance,
@@ -809,7 +773,7 @@ class ArmClient(object):
 
     def delete_sqlmi(self, rg_name, sqlmi_name, polling=True):
         try:
-            result = self._arm_client.sql_managed_instances.begin_delete(
+            result = self._mgmt_client.sql_managed_instances.begin_delete(
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
                 polling=polling,
@@ -824,7 +788,7 @@ class ArmClient(object):
 
     def get_sqlmi(self, rg_name, sqlmi_name):
         try:
-            result = self._arm_client.sql_managed_instances.get(
+            result = self._mgmt_client.sql_managed_instances.get(
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
             ).as_dict()
@@ -840,7 +804,7 @@ class ArmClient(object):
 
     def get_sqlmi_as_obj(self, rg_name, sqlmi_name):
         try:
-            result = self._arm_client.sql_managed_instances.get(
+            result = self._mgmt_client.sql_managed_instances.get(
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
             )
@@ -980,6 +944,8 @@ class ArmClient(object):
     def update_sqlmi(
         self,
         name,
+        replicas=None,
+        readable_secondaries=None,
         cores_limit=None,
         cores_request=None,
         memory_limit=None,
@@ -1052,13 +1018,16 @@ class ArmClient(object):
                 additional_properties["services"]["primary"][
                     "annotations"
                 ] = service_annotations
+            if replicas is None:
+                replicas = response.properties.k8_s_raw.spec.replicas
+            if readable_secondaries:
+                response.properties.readableSecondaries = readable_secondaries
             if license_type:
                 response.properties.license_type = license_type
 
             # -- Validation check -- prisioning is very slow so we check here
             #
             self._is_valid_sqlmi_create(
-                replicas=response.properties.k8_s_raw.spec.replicas,
                 cores_limit=resources.limits["cpu"],
                 cores_request=resources.requests["cpu"],
                 memory_limit=resources.limits["memory"],
@@ -1079,7 +1048,7 @@ class ArmClient(object):
                 tier=response.sku.tier,
             )
 
-            self._arm_client.sql_managed_instances.begin_create(
+            self._mgmt_client.sql_managed_instances.begin_create(
                 resource_group_name=resource_group,
                 sql_managed_instance_name=name,
                 sql_managed_instance=response,
@@ -1127,7 +1096,7 @@ class ArmClient(object):
     def list_sqlmi(self, rg_name):
         try:
             result = (
-                self._arm_client.sql_managed_instances.list_by_resource_group(
+                self._mgmt_client.sql_managed_instances.list_by_resource_group(
                     rg_name
                 )
             )
@@ -1141,7 +1110,7 @@ class ArmClient(object):
 
     def patch_dc(self, rg_name, dc_name, properties: dict):
         try:
-            result = self._arm_client.data_controllers.patch_data_controller(
+            result = self._mgmt_client.data_controllers.patch_data_controller(
                 resource_group_name=rg_name,
                 data_controller_name=dc_name,
                 data_controller_resource=properties,
@@ -1156,7 +1125,6 @@ class ArmClient(object):
 
     def _is_valid_sqlmi_create(
         self,
-        replicas,
         cores_limit,
         cores_request,
         memory_limit,

@@ -10,6 +10,7 @@ from azure.cli.core.azclierror import (
     ValidationError,
 )
 import azext_arcdata.core.common_validators as validators
+from azext_arcdata.core.constants import DIRECT
 
 
 def force_indirect(namespace):
@@ -41,25 +42,30 @@ def validate_create(namespace):
             "Specify only one."
         )
 
-    # -- direct --
+    # -- ARM cloud call --
     if not namespace.use_k8s:
         if not namespace.location:
             required_for_direct.append("--location")
 
         if not namespace.custom_location:
             required_for_direct.append("--custom-location")
-        
+
         for key in monitoring_cert_keys:
             if getattr(namespace, key, None):
                 raise ArgumentUsageError(
                     "Cannot specify {0} in direct mode. Monitoring endpoint certificate"
-                    " arguments are for indirect mode only.".format("--" + "-".join(key.split("_")))
+                    " arguments are for indirect mode only.".format(
+                        "--" + "-".join(key.split("_"))
+                    )
                 )
 
-    # -- indirect --
+    # -- Kubernetes-native --
     if namespace.use_k8s:
-        # if namespace.location:
-        #    direct_only.append("--location")
+        if namespace.connectivity_mode == DIRECT:
+            raise ArgumentUsageError(
+                "Performing this action from az using the --use-k8s parameter is only allowed using indirect mode. "
+                "Please use the Azure Portal or remove use-k8s to perform this action in direct connectivity mode."
+            )
 
         if namespace.custom_location:
             direct_only.append("--custom-location")

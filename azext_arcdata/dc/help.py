@@ -76,6 +76,60 @@ helps[
 )
 
 helps[
+    "arcdata dc update"
+] = """
+    type: group
+    short-summary: {short}
+""".format(
+    short="Update data controller properties."
+)
+
+# todo: temporarily disabled
+# todo: see: https://msdata.visualstudio.com/Tina/_workitems/edit/1656601
+# helps[
+#     "arcdata dc update mw"
+# ] = """
+#     type: group
+#     short-summary: {short}
+# """.format(
+#     short="Update data controller maintenance window properties."
+# )
+
+helps[
+    "arcdata dc update"
+] = """
+    type: command
+    short-summary: {short}
+    long-summary: {long}
+    examples:
+        - name: {ex1}
+          text: >
+            az arcdata dc update --auto-upload-logs true --auto-upload-metrics true --name dc-name --resource-group resource-group 
+""".format(
+    short="Update data controller.",
+    long="Updates the datacontroller to enable/disable auto uploading logs and metrics",
+    ex1="Data controller upgrade.",
+)
+
+# todo: temporarily disabled
+# todo: see: https://msdata.visualstudio.com/Tina/_workitems/edit/1656601
+#helps[
+#    "arcdata dc update mw"
+#] = """
+#    type: command
+#    short-summary: {short}
+#    long-summary: {long}
+#    examples:
+#        - name: {ex1}
+#          text: >
+#            az arcdata dc update mw
+#""".format(
+#    short="Update data controller maintenance window.",
+#    long="Updates the datacontroller maintenance window.",
+#    ex1="Data controller upgrade.",
+#)
+
+helps[
     "arcdata dc list-upgrades"
 ] = """
     type: command

@@ -26,6 +26,7 @@ from azext_arcdata.kubernetes_sdk.models.storage_spec import StorageSpec
 from azext_arcdata.kubernetes_sdk.models.volume_claim import VolumeClaim
 from azext_arcdata.kubernetes_sdk.models.service_spec import ServiceSpec
 from azext_arcdata.kubernetes_sdk.models.security_spec import SecuritySpec
+from azext_arcdata.kubernetes_sdk.models.monitoring_spec import MonitoringSpec
 from azext_arcdata.kubernetes_sdk.models.monitor_custom_resource import (
     MonitorCustomResource,
 )

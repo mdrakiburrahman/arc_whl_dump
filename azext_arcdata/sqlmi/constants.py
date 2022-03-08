@@ -6,7 +6,7 @@
 
 import os
 
-from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V3
+from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V4
 
 RESOURCE_KIND = "SqlManagedInstance"
 """
@@ -23,7 +23,7 @@ API_GROUP = "sql.arcdata.microsoft.com"
 Defines the API group.
 """
 
-API_VERSION = ARC_API_V3
+API_VERSION = ARC_API_V4
 """
 Defines the API version.
 """

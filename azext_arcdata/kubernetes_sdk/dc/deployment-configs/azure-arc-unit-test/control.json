@@ -1,5 +1,5 @@
 {
-    "apiVersion": "arcdata.microsoft.com/v2",
+    "apiVersion": "arcdata.microsoft.com/v3",
     "kind": "DataController",
     "metadata": {
        "name": "datacontroller"
@@ -14,7 +14,7 @@
        "docker": {
           "registry": "repo.corp.microsoft.com",
           "repository": "arcdata-dev",
-          "imageTag": "v1.1.0_ubuntu2004-jakedern",
+          "imageTag": "v1.4.0_ubuntu2004-jakedern",
           "imagePullPolicy": "IfNotPresent"
        },
        "storage": {

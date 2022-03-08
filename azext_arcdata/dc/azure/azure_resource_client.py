@@ -86,9 +86,14 @@ class AzureResourceClient(object):
         properties to be included in the properties bag.
         :return:
         """
+
+        data_controller_id = azure_constants.RESOURCE_URI.format(
+            subscription_id, resource_group_name, "dataControllers", data_controller_name
+        )
+
         params = {
             "location": location,
-            "properties": {"dataControllerId": data_controller_name},
+            "properties": {"dataControllerId": data_controller_id},
         }
 
         if extended_properties:
@@ -394,14 +399,14 @@ class AzureResourceClient(object):
             "https://san-af-{}-prod.azurewebsites.net/api/subscriptions"
             "/{}/resourcegroups/{}/providers"
             "/Microsoft.AzureArcData/dataControllers"
-            "/{}?api-version=2022-01-01".format(
+            "/{}?api-version=2022-03-01".format(
                 location, subscription_id, resource_group_name, name
             )
         )
 
         body = (
             b'{"$schema": "https://microsoft.azuredata.com/azurearc/pipeline'
-            b'/usagerecordsrequest.01-2022.schema.json","blob": "'
+            b'/usagerecordsrequest.03-2022.schema.json","blob": "'
             + data_base64
             + b'"}'
         )

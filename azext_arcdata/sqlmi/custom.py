@@ -24,6 +24,7 @@ from azext_arcdata.core.constants import (
     DATA_CONTROLLER_CRD_VERSION,
     DATA_CONTROLLER_PLURAL,
     USE_K8S_EXCEPTION_TEXT,
+    FEATURE_FLAG_RESOURCE_SYNC,
 )
 from azext_arcdata.core.prompt import prompt, prompt_pass
 from azext_arcdata.core.util import (
@@ -99,6 +100,7 @@ def arc_sql_mi_create(
     name,
     path=None,
     replicas=None,
+    readable_secondaries=None,
     cores_limit=None,
     cores_request=None,
     memory_limit=None,
@@ -160,6 +162,7 @@ def arc_sql_mi_create(
                 name=name,
                 path=path,
                 replicas=replicas,
+                readable_secondaries=readable_secondaries,
                 cores_limit=cores_limit,
                 cores_request=cores_request,
                 memory_limit=memory_limit,
@@ -249,6 +252,11 @@ def arc_sql_mi_create(
             except ValueError as e:
                 raise CLIError(e)
 
+        # if readable_secondaries is not set. use default value
+        #
+        if readable_secondaries is None:
+            cr.spec.readableSecondaries = min(cr.spec.replicas - 1, 1)
+
         validate_labels_and_annotations(
             labels,
             annotations,
@@ -308,7 +316,9 @@ def arc_sql_mi_create(
                     "external endpoint argument.".format(namespace)
                 )
             else:
-                is_valid_connectivity_mode(client)
+                if not os.environ.get(FEATURE_FLAG_RESOURCE_SYNC):
+                    is_valid_connectivity_mode(client)
+
                 dc_cr = CustomResource.decode(
                     DataControllerCustomResource, dcs[0]
                 )
@@ -641,10 +651,10 @@ def arc_sql_mi_edit(
             namespace=namespace,
             # -- direct --
             resource_group=resource_group,
-            #location=location,
-            #custom_location=custom_location,
-            #tag_name=tag_name,
-            #tag_value=tag_value,
+            # location=location,
+            # custom_location=custom_location,
+            # tag_name=tag_name,
+            # tag_value=tag_value,
         )
     except KubernetesError as e:
         raise SqlmiError(e.message)
@@ -655,6 +665,8 @@ def arc_sql_mi_edit(
 def arc_sql_mi_update(
     client,
     name,
+    replicas=None,
+    readable_secondaries=None,
     path=None,
     time_zone=None,
     cores_limit=None,
@@ -723,6 +735,8 @@ def arc_sql_mi_update(
 
             return armclient.update_sqlmi(
                 name=name,
+                replicas=replicas,
+                readable_secondaries=readable_secondaries,
                 cores_limit=cores_limit,
                 cores_request=cores_request,
                 memory_limit=memory_limit,
@@ -772,13 +786,13 @@ def arc_sql_mi_update(
                 raise CLIError(
                     "Wrong pod name {0}".format(preferred_primary_replica)
                 )
-        else:
-            preferred_primary_replica = "any"
+            cr.spec.preferredPrimaryReplicaSpec.preferredPrimaryReplica = (
+                preferred_primary_replica
+            )
+
         if not primary_replica_failover_interval:
             primary_replica_failover_interval = 600
-        cr.spec.preferredPrimaryReplicaSpec.preferredPrimaryReplica = (
-            preferred_primary_replica
-        )
+
         cr.spec.preferredPrimaryReplicaSpec.primaryReplicaFailoverInterval = (
             int(primary_replica_failover_interval)
         )
@@ -920,7 +934,10 @@ def arc_sql_mi_delete(
             return poller
 
         check_and_set_kubectl_context()
-        is_valid_connectivity_mode(client)
+
+        if not os.environ.get(FEATURE_FLAG_RESOURCE_SYNC):
+            is_valid_connectivity_mode(client)
+
         namespace = namespace or client.namespace
 
         client.apis.kubernetes.delete_namespaced_custom_object(
@@ -1012,7 +1029,7 @@ def arc_sql_mi_getmirroringcert(
             plural=RESOURCE_KIND_PLURAL,
         )
         cr = CustomResource.decode(SqlmiCustomResource, response)
-        data_pem = cr.status.mirroringCertificate
+        data_pem = cr.status.highAvailability.mirroringCertificate
 
         client.stdout(
             "result write to file {0}: {1}".format(cert_file, data_pem)
@@ -1060,7 +1077,9 @@ def arc_sql_mi_list(client, resource_group=None, namespace=None, use_k8s=None):
                 result.append(
                     {
                         "name": cr.metadata.name,
-                        "primaryEndpoint": cr.status.primaryEndpoint,
+                        "primaryEndpoint": cr.status.endpoints.primary
+                        if cr.status.endpoints
+                        else cr.status.primaryEndpoint,
                         "replicas": cr.status.readyReplicas,
                         "state": cr.status.state,
                     }

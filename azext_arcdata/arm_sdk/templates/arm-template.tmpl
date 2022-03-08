@@ -1,0 +1,516 @@
+{
+    "properties": {
+      "mode": "incremental",
+      "debugSetting": {
+        "detailLevel": "none"
+      },
+      "parameters": {
+        "imagePullPolicy": {
+          "value": "{{control.spec.docker.imagePullPolicy}}"
+        },
+        "parentResource": {
+          "value": "Microsoft.Kubernetes/connectedClusters/{{cluster}}"
+        },
+        "resourceName": {
+          "value": "{{resource_name}}"
+        },
+        "namespace": {
+          "value": "{{namespace}}"
+        },
+        "releaseTrain": {
+          "value": "{{RELEASE_TRAIN_TAG}}"
+        },
+        "version": {
+          "value": "{{ARC_DATASERVICES_EXTENSION_VERSION_TAG}}"
+        },
+        "imageRegistry": {
+          "value": "{{control.spec.docker.registry}}"
+        },
+        "imageVersion": {
+          "value": "{{control.spec.docker.registry}}/arcdata/arc-bootstrapper:{{control.spec.docker.imageTag}}"
+        },
+        "imageUsername": {
+          "value": "{{docker_username}}"
+        },
+        "imagePassword": {
+          "value": "{{docker_password}}"
+        },
+        "apiVersion": {
+          "value": "{{ARC_DATA_SERVICES_EXTENSION_API_VERION}}"
+        },
+        "roleNameGuid_1": {
+          "value": "{{resource_name_1}}"
+        },
+        "roleDefinitionId_1": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c"
+        },
+        "resourceName_1": {
+          "value": "{{resource_name_1}}"
+        },
+        "apiVersion_1": {
+          "value": "{{ROLE_ASSIGNMENT_API_VERSION}}"
+        },
+        "roleNameGuid_2": {
+          "value": "{{resource_name_2}}"
+        },
+        "roleDefinitionId_2": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.Authorization/roleDefinitions/3913510d-42f4-4e42-8a64-420c390055eb"
+        },
+        "resourceName_2": {
+          "value": "{{resource_name_2}}"
+        },
+        "apiVersion_2": {
+          "value": "{{ROLE_ASSIGNMENT_API_VERSION}}"
+        },
+        "resourceName_3": {
+          "value": "{{custom_location}}"
+        },
+        "customLocationId_3": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.ExtendedLocation/customLocations/{{custom_location}}"
+        },
+        "location_3": {
+          "value": "{{control.spec.settings.azure.location}}"
+        },
+        "hostResourceId_3": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.Kubernetes/connectedClusters/{{cluster}}"
+        },
+        "namespace_3": {
+          "value": "{{namespace}}"
+        },
+        "clusterExtensionIds_3": {
+          "value": [
+            "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.Kubernetes/connectedClusters/{{cluster}}/providers/Microsoft.KubernetesConfiguration/extensions/{{resource_name}}"
+          ]
+        },
+        "apiVersion_3": {
+          "value": "{{CUSTOM_LOCATION_API_VERSION}}"
+        },
+        "namespace_4": {
+          "value": "{{namespace}}"
+        },
+        "connectionMode_4": {
+          "value": "{{control.spec.settings.azure.connectionMode}}"
+        },
+        "controllerName_4": {
+          "value": "{{control.spec.settings.controller.displayName}}"
+        },
+        "metricsAndLogsDashboardUsername_4": {
+          "value": "{{credentials.metrics_username}}"
+        },
+        "metricsAndLogsDashboardPassword_4": {
+          "value": "{{credentials.metrics_password}}"
+        },
+        "customLocationId_4": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.ExtendedLocation/customLocations/{{custom_location}}"
+        },
+        "metricsAutoUploadSelected_4": {
+          "value": "{{control.spec.settings.azure.autoUploadMetrics}}"
+        },
+        "logsAutoUploadSelected_4": {
+          "value": "{{control.spec.settings.azure.autoUploadLogs}}"
+        },
+        "resourceTags_4": {
+          "value": {}
+        },
+        "infrastructure_4": {
+          "value": "{{control.spec.infrastructure}}"
+        },
+        "dockerRegistryCredential_4": {
+          "value": "{{control.spec.credentials.dockerRegistry}}"
+        },
+        "dockerImagePullPolicy_4": {
+          "value": "{{control.spec.docker.imagePullPolicy}}"
+        },
+        "dockerImageTag_4": {
+          "value": "{{control.spec.docker.imageTag}}"
+        },
+        "dockerRegistry_4": {
+          "value": "{{control.spec.docker.registry}}"
+        },
+        "dockerRepository_4": {
+          "value": "{{control.spec.docker.repository}}"
+        },
+        "dataStorageClass_4": {
+          "value": "{{control.spec.storage.data.className}}"
+        },
+        "dataStorageSize_4": {
+          "value": "{{control.spec.storage.data.size}}"
+        },
+        "logsStorageClass_4": {
+          "value": "{{control.spec.storage.logs.className}}"
+        },
+        "logsStorageSize_4": {
+          "value": "{{control.spec.storage.logs.size}}"
+        },
+        "serviceType_4": {
+          "value": "{{control.spec.services[0].serviceType}}"
+        },
+        "controllerPort_4": {
+          "value": {{control.spec.services[0].port}}
+        },
+        "subscription_4": {
+          "value": "{{control.spec.settings.azure.subscription}}"
+        },
+        "resourceGroup_4": {
+          "value": "{{control.spec.settings.azure.resourceGroup}}"
+        },
+        "location_4": {
+          "value": "{{control.spec.settings.azure.location}}"
+        },
+        "resourceName_4": {
+          "value": "{{control.spec.settings.controller.displayName}}"
+        },
+        "apiVersion_4": {
+          "value": "{{DATA_CONTROLLER_API_VERSION}}"
+        }
+      },
+      "template": {
+        "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+        "contentVersion": "1.0.0.0",
+        "parameters": {
+          "imagePullPolicy": {
+            "type": "string"
+          },
+          "parentResource": {
+            "type": "string"
+          },
+          "resourceName": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "releaseTrain": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "imageRegistry": {
+            "type": "string"
+          },
+          "imageVersion": {
+            "type": "string"
+          },
+          "imageUsername": {
+            "type": "string"
+          },
+          "imagePassword": {
+            "type": "string"
+          },
+          "apiVersion": {
+            "type": "string"
+          },
+          "roleNameGuid_1": {
+            "type": "string"
+          },
+          "roleDefinitionId_1": {
+            "type": "string"
+          },
+          "resourceName_1": {
+            "type": "string"
+          },
+          "apiVersion_1": {
+            "type": "string"
+          },
+          "roleNameGuid_2": {
+            "type": "string"
+          },
+          "roleDefinitionId_2": {
+            "type": "string"
+          },
+          "resourceName_2": {
+            "type": "string"
+          },
+          "apiVersion_2": {
+            "type": "string"
+          },
+          "resourceName_3": {
+            "type": "string"
+          },
+          "customLocationId_3": {
+            "type": "string"
+          },
+          "location_3": {
+            "type": "string"
+          },
+          "hostResourceId_3": {
+            "type": "string"
+          },
+          "namespace_3": {
+            "type": "string"
+          },
+          "clusterExtensionIds_3": {
+            "type": "array"
+          },
+          "apiVersion_3": {
+            "type": "string"
+          },
+          "namespace_4": {
+            "type": "string"
+          },
+          "connectionMode_4": {
+            "type": "string"
+          },
+          "controllerName_4": {
+            "type": "string"
+          },
+          "metricsAndLogsDashboardUsername_4": {
+            "type": "string"
+          },
+          "metricsAndLogsDashboardPassword_4": {
+            "type": "secureString"
+          },
+          "customLocationId_4": {
+            "type": "string"
+          },
+          "metricsAutoUploadSelected_4": {
+            "type": "string"
+          },
+          "logsAutoUploadSelected_4": {
+            "type": "string"
+          },
+          "resourceTags_4": {
+            "type": "object"
+          },
+          "infrastructure_4": {
+            "type": "string"
+          },
+          "dockerRegistryCredential_4": {
+            "type": "string"
+          },
+          "dockerImagePullPolicy_4": {
+            "type": "string"
+          },
+          "dockerImageTag_4": {
+            "type": "string"
+          },
+          "dockerRegistry_4": {
+            "type": "string"
+          },
+          "dockerRepository_4": {
+            "type": "string"
+          },
+          "dataStorageClass_4": {
+            "type": "string"
+          },
+          "dataStorageSize_4": {
+            "type": "string"
+          },
+          "logsStorageClass_4": {
+            "type": "string"
+          },
+          "logsStorageSize_4": {
+            "type": "string"
+          },
+          "serviceType_4": {
+            "type": "string"
+          },
+          "controllerPort_4": {
+            "type": "int"
+          },
+          "subscription_4": {
+            "type": "string"
+          },
+          "resourceGroup_4": {
+            "type": "string"
+          },
+          "location_4": {
+            "type": "string"
+          },
+          "resourceName_4": {
+            "type": "string"
+          },
+          "apiVersion_4": {
+            "type": "string"
+          }
+        },
+        "functions": [],
+        "variables": {},
+        "resources": [
+          {% if include_extension %}
+          {
+            "identity": {
+              "type": "SystemAssigned"
+            },
+            "scope": "[parameters('parentResource')]",
+            "properties": {
+              "extensionType": "microsoft.arcdataservices",
+              "autoUpgradeMinorVersion": false,
+              "releaseTrain": "[parameters('releaseTrain')]",
+              "version": "[parameters('version')]",
+              "scope": {
+                "cluster": {
+                  "releaseNamespace": "[parameters('namespace')]"
+                }
+              },
+              "configurationSettings": {
+                "Microsoft.CustomLocation.ServiceAccount": "sa-arc-bootstrapper",
+                "aad.customLocationObjectId": "51dfe1e8-70c6-4de5-a08e-e18aff23d815",
+                "imageCredentials.username": "[parameters('imageUsername')]",
+                "imageCredentials.registry": "[parameters('imageRegistry')]",
+                "systemDefaultValues.image": "[parameters('imageVersion')]",
+                "systemDefaultValues.imagePullPolicy": "[parameters('imagePullPolicy')]"
+              },
+              "configurationProtectedSettings": {
+                "imageCredentials.password": "[parameters('imagePassword')]"
+              }
+            },
+            "apiVersion": "[parameters('apiVersion')]",
+            "type": "Microsoft.KubernetesConfiguration/extensions",
+            "name": "[parameters('resourceName')]"
+          },
+          {% endif %}
+          {% if include_roles %}
+          {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "[parameters('apiVersion_1')]",
+            "name": "[parameters('resourceName_1')]",
+            "properties": {
+              "roleDefinitionId": "[parameters('roleDefinitionId_1')]",
+              "principalId": "[reference(parameters('resourceName'), parameters('apiVersion'), 'Full').identity.principalId]"
+            },
+            "dependsOn": [
+              "[parameters('resourceName')]"
+            ]
+          },
+          {
+            "type": "Microsoft.Authorization/roleAssignments",
+            "apiVersion": "[parameters('apiVersion_2')]",
+            "name": "[parameters('resourceName_2')]",
+            "properties": {
+              "roleDefinitionId": "[parameters('roleDefinitionId_2')]",
+              "principalId": "[reference(parameters('resourceName'), parameters('apiVersion'), 'Full').identity.principalId]"
+            },
+            "dependsOn": [
+              "[parameters('resourceName_1')]"
+            ]
+          },
+          {% endif %}
+          {% if include_custom_location %}
+          {
+            "name": "[parameters('resourceName_3')]",
+            "location": "[parameters('location_3')]",
+            "type": "Microsoft.ExtendedLocation/customLocations",
+            "properties": {
+              "hostType": "Kubernetes",
+              "hostResourceId": "[parameters('hostResourceId_3')]",
+              "namespace": "[parameters('namespace_3')]",
+              "displayName": "",
+              "clusterExtensionIds": "[parameters('clusterExtensionIds_3')]",
+              "authentication": {}
+            },
+            "apiVersion": "[parameters('apiVersion_3')]",
+            "dependsOn": [
+              "[parameters('resourceName_2')]"
+            ]
+          },
+          {% endif %}
+          {
+            "extendedLocation": {
+              "name": "[parameters('customLocationId_4')]",
+              "type": "CustomLocation"
+            },
+            "location": "[parameters('location_4')]",
+            "tags": "[parameters('resourceTags_4')]",
+            "properties": {
+              "metricsDashboardCredential": {
+                "username": "[parameters('metricsAndLogsDashboardUsername_4')]",
+                "password": "[parameters('metricsAndLogsDashboardPassword_4')]"
+              },
+              "logsDashboardCredential": {
+                "username": "[parameters('metricsAndLogsDashboardUsername_4')]",
+                "password": "[parameters('metricsAndLogsDashboardPassword_4')]"
+              },
+              "logAnalyticsWorkspaceConfig": {},
+              "infrastructure": "[parameters('infrastructure_4')]",
+              "k8sRaw": {
+                "kind": "DataController",
+                "spec": {
+                  "credentials": {
+                    "dockerRegistry": "[parameters('dockerRegistryCredential_4')]",
+                    "domainServiceAccount": "domain-service-account-secret",
+                    "serviceAccount": "sa-arc-controller"
+                  },
+                  "security": {
+                    "allowDumps": true,
+                    "allowNodeMetricsCollection": true,
+                    "allowPodMetricsCollection": true
+                  },
+                  "services": [
+                    {
+                      "name": "controller",
+                      "port": "[parameters('controllerPort_4')]",
+                      "serviceType": "[parameters('serviceType_4')]"
+                    }
+                  ],
+                  "settings": {
+                    "ElasticSearch": {
+                      "vm.max_map_count": "-1"
+                    },
+                    "azure": {
+                      "autoUploadMetrics": "[parameters('metricsAutoUploadSelected_4')]",
+                      "autoUploadLogs": "[parameters('logsAutoUploadSelected_4')]",
+                      "subscription": "[parameters('subscription_4')]",
+                      "resourceGroup": "[parameters('resourceGroup_4')]",
+                      "location": "[parameters('location_4')]",
+                      "connectionMode": "[parameters('connectionMode_4')]"
+                    },
+                    "controller": {
+                      "logs.rotation.days": "7",
+                      "logs.rotation.size": "5000",
+                      "displayName": "[parameters('controllerName_4')]"
+                    }
+                  },
+                  "storage": {
+                    "data": {
+                      "accessMode": "ReadWriteOnce",
+                      "className": "[parameters('dataStorageClass_4')]",
+                      "size": "[parameters('dataStorageSize_4')]"
+                    },
+                    "logs": {
+                      "accessMode": "ReadWriteOnce",
+                      "className": "[parameters('logsStorageClass_4')]",
+                      "size": "[parameters('logsStorageSize_4')]"
+                    }
+                  },
+                  "infrastructure": "[parameters('infrastructure_4')]",
+                  "docker": {
+                    "registry": "[parameters('dockerRegistry_4')]",
+                    "repository": "[parameters('dockerRepository_4')]",
+                    "imageTag": "[parameters('dockerImageTag_4')]",
+                    "imagePullPolicy": "[parameters('dockerImagePullPolicy_4')]"
+                  }
+                },
+                "metadata": {
+                  "namespace": "[parameters('namespace_4')]",
+                  "name": "datacontroller"
+                },
+                "apiVersion": "arcdata.microsoft.com/v2",
+                "status": {
+                  "azure": {
+                    "uploadStatus": {
+                      "metrics": {},
+                      "logs": {},
+                      "usage": {}
+                    }
+                  }
+                }
+              }
+            },
+            "apiVersion": "[parameters('apiVersion_4')]",
+            "type": "Microsoft.AzureArcData/dataControllers",
+            "name": "[parameters('resourceName_4')]",
+            "dependsOn": [
+              "[parameters('resourceName_3')]"
+            ]
+          }
+        ],
+        "outputs": {}
+      },
+      "validationLevel": "Template"
+    },
+    "tags": {
+      "marketplaceItemId": "Microsoft.DataController"
+    }
+}

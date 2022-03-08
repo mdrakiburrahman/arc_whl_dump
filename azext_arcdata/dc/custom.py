@@ -236,6 +236,26 @@ def dc_upgrade(
         raise CLIError(e)
 
 
+def mw_update(
+    client,
+    namespace=None,
+    desired_version=None,
+    use_k8s=None,
+    maintenance_start=None,
+    maintenance_duration=None,
+    maintenance_recurrence=None,
+    maintenance_time_zone=None,
+):
+    """
+    Pass-through maintenance window update command
+    """
+    try:
+        cvo = client.args_to_command_value_object()
+        client.services.dc.update_maintenance_window(cvo)
+    except Exception as e:
+        raise CLIError(e)
+
+
 def dc_list_upgrade(client, namespace, use_k8s=None):
     stdout = client.stdout
     try:

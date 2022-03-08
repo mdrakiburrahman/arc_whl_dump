@@ -45,8 +45,15 @@ def load_arguments(self, _):
             options_list=["--replicas"],
             help="This option specifies the number of SQL Managed Instance "
             "replicas that will be deployed in your Kubernetes cluster "
-            "for high availability purpose. Allowed values are '3' or "
+            "for high availability purpose. Allowed values are '3', '2', "
             "'1' with default of '1'.",
+        )
+        c.argument(
+            "readable_secondaries",
+            options_list=["--readable-secondaries"],
+            help="Number of replicas to be made readable. Applies only to "
+            "Business Critical tier.  Value must be between 0 and the "
+            "number of replicas minus 1.",
         )
         c.argument(
             "cores_limit",
@@ -98,10 +105,9 @@ def load_arguments(self, _):
         c.argument(
             "storage_class_backups",
             options_list=["--storage-class-backups"],
-            help="The storage class to be used for backups "
-            "(/var/opt/mssql/backups). If no value is specified, "
-            "then no storage class will be specified, which will "
-            "result in Kubernetes using the default storage class.",
+            help="A ReadWriteMany (RWX) capable storage class to be used for "
+            "backups (/var/opt/mssql/backups). If no value is specified, "
+            "the default storage class will be used.",
         )
         c.argument(
             "volume_size_data",
@@ -313,9 +319,17 @@ def load_arguments(self, _):
             help="The name of the SQL managed instance.",
         )
         c.argument(
+            "replicas",
+            options_list=["--replicas"],
+            help="This option specifies the number of SQL Managed Instance "
+            "replicas that will be updated in your Kubernetes cluster. "
+            "Allowed values for General Purpose: 1, Business Critical: 1, 2, 3.",
+        )
+        c.argument(
             "field_filter",
             options_list=["--field-filter", "-f"],
-            help="Filter to select instances to upgrade based on resource properties.",
+            help="Filter to select instances to upgrade based on resource "
+            "properties.",
         )
         c.argument(
             "label_filter",
@@ -326,7 +340,8 @@ def load_arguments(self, _):
             "dry_run",
             options_list=["--dry-run", "-d"],
             action="store_true",
-            help="Indicates which instance would be upgraded but does not actually upgrade the instances.",
+            help="Indicates which instance would be upgraded but does not "
+            "actually upgrade the instances.",
         )
         c.argument(
             "desired_version",
@@ -343,7 +358,8 @@ def load_arguments(self, _):
         c.argument(
             "force",
             options_list=["--force"],
-            help="Overrides all policies that may be applied to the instance, and attempts the upgrade.",
+            help="Overrides all policies that may be applied to the instance, "
+            "and attempts the upgrade.",
             action="store_true",
         )
         c.argument(
@@ -472,7 +488,22 @@ def load_arguments(self, _):
         c.argument(
             "preferred_primary_replica",
             options_list=["--preferred-primary-replica"],
-            help=""
+            help="",
+        )
+        c.argument(
+            "replicas",
+            options_list=["--replicas"],
+            help="This option specifies the number of SQL Managed Instance "
+            "replicas that will be deployed in your Kubernetes cluster "
+            "for high availability purpose. Allowed values are '3', '2', "
+            "'1' with default of '1'.",
+        )
+        c.argument(
+            "readable_secondaries",
+            options_list=["--readable-secondaries"],
+            help="Number of replicas to be made readable. Applies only to "
+            "Business Critical tier.  Value must be between 0 and the "
+            "number of replicas minus 1.",
         )
         # -- indirect --
         c.argument(
@@ -652,7 +683,6 @@ def load_arguments(self, _):
             "location",
             options_list=["--location"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-
             help="The Azure location in which the sqlmi metadata "
             "will be stored (e.g. eastus).",
         )
@@ -667,7 +697,7 @@ def load_arguments(self, _):
             options_list=["--resource-group", "-g"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help="The Azure resource group in which the sqlmi "
-                 "resource should be added.",
+            "resource should be added.",
         )
         c.argument(
             "tag_name",

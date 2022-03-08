@@ -4,7 +4,7 @@
 
 import os
 
-from azext_arcdata.core.constants import ARC_API_V1, ARC_API_V2
+from azext_arcdata.core.constants import ARC_API_V1, ARC_API_V2, ARC_API_V3
 from azext_arcdata.postgres.constants import POSTGRES_SPEC
 from azext_arcdata.sqlmi.constants import (
     DAG_SPEC,
@@ -445,6 +445,7 @@ SPEC_FILE_DICT = {
 CRD_SUPPORTED_IMAGE_VERSIONS = {
     ARC_API_V1: ["v1.0.0"],
     ARC_API_V2: ["v1.1.0", "v1.2.0", "v1.3.0"],
+    ARC_API_V3: ["v1.4.0"],
 }
 
 RESOURCE_KIND_DATA_CONTROLLER = "dataController"
@@ -458,26 +459,26 @@ class UPGRADE_BOOTSTRAPPER_TEMPLATES:
         TEMPLATE_DIR, "upgrade-bootstrapper", "cluster-role.yaml.tmpl"
     )
     """
-    Template for priviliged bootstrapper cluster role.
+    Template for privileged bootstrapper cluster role.
     """
 
     CLUSTER_ROLE_BINDING = os.path.join(
         TEMPLATE_DIR, "upgrade-bootstrapper", "cluster-role-binding.yaml.tmpl"
     )
     """
-    Template for priviliged bootstrapper cluster role binding.
+    Template for privileged bootstrapper cluster role binding.
     """
 
     SERVICE_ACCOUNT = os.path.join(
         TEMPLATE_DIR, "upgrade-bootstrapper", "service-account.yaml.tmpl"
     )
     """
-    Template for priviliged bootstrapper cluster role binding.
+    Template for privileged bootstrapper cluster role binding.
     """
 
     JOB = os.path.join(TEMPLATE_DIR, "upgrade-bootstrapper", "job.yaml.tmpl")
     """
-    Template for priviliged bootstrapper job, required for upgrade and other as-needed cluster-wide operations.
+    Template for privileged bootstrapper job, required for upgrade and other as-needed cluster-wide operations.
     """
 
     CLUSTER_ROLE_NAME_FORMAT = "{0}:cr-upgrade-worker"

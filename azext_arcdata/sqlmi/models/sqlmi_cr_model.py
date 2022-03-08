@@ -70,6 +70,7 @@ class SqlmiCustomResource(CustomResource):
         def __init__(
             self,
             replicas: int = 1,
+            readableSecondaries: int =0,
             serviceType: str = None,
             license_type: str = None,
             tier: str = None,
@@ -78,6 +79,7 @@ class SqlmiCustomResource(CustomResource):
         ):
             super().__init__(*args, **kwargs)
             self.replicas = replicas
+            self.readableSecondaries = readableSecondaries
             self.serviceType = serviceType
             self.scheduling = self.Scheduling()
             self.security = self.Security()
@@ -96,7 +98,12 @@ class SqlmiCustomResource(CustomResource):
             Default to 1, if replica number > 1, it is a HA deployment
             """
             return self._replicas
-
+        @property
+        def readableSecondaries(self) -> int:
+            """
+            Default to 0, it is between 0 and < replicas
+            """
+            return self._readablesecondaries
         @property
         def tier(self) -> str:
             """
@@ -114,6 +121,10 @@ class SqlmiCustomResource(CustomResource):
         @replicas.setter
         def replicas(self, r: int):
             self._replicas = r
+
+        @readableSecondaries.setter
+        def readableSecondaries(self, rsr: int):
+            self._readablesecondaries = rsr
 
         @tier.setter
         def tier(self, t: str):
@@ -522,6 +533,8 @@ class SqlmiCustomResource(CustomResource):
             super()._hydrate(d)
             if "replicas" in d:
                 self.replicas = d["replicas"]
+            if "readableSecondaries" in d:
+                self.readableSecondaries = d["readableSecondaries"]
             if "serviceType" in d:
                 self.serviceType = d["serviceType"]
             if "security" in d:
@@ -546,6 +559,7 @@ class SqlmiCustomResource(CustomResource):
         def _to_dict(self):
             base = super()._to_dict()
             base["replicas"] = self.replicas
+            base["readableSecondaries"] = self.readableSecondaries
             base["serviceType"] = getattr(self, "serviceType", None)
             base["security"] = self.security._to_dict()
             base["scheduling"] = self.scheduling._to_dict()
@@ -604,6 +618,99 @@ class SqlmiCustomResource(CustomResource):
         @override CustomResource.Status
         """
 
+        class EndpointsStatus(CustomResource.Status.EndpointsStatus):
+            """
+            @override CustomResource.EndpointsStatus
+            """
+
+            openapi_types = {}
+
+            def __init__(self) -> None:
+                super().__init__()
+
+            @property
+            def primary(self) -> str:
+                return getattr(self, "_primary", None)
+
+            @primary.setter
+            def primary(self, p: str):
+                self._primary = p
+
+            @property
+            def secondary(self) -> str:
+                return getattr(self, "_secondary", None)
+
+            @secondary.setter
+            def secondary(self, s: str):
+                self._secondary = s
+
+            @property
+            def mirroring(self) -> str:
+                return getattr(self, "_mirroring", None)
+
+            @mirroring.setter
+            def mirroring(self, m: str):
+                self._mirroring = m
+            
+            def _hydrate(self, d: dict):
+                """
+                @override
+                """
+                super()._hydrate(d)
+                if "primary" in d:
+                    self.primary = d["primary"]
+                if "secondary" in d:
+                    self.secondary = d["secondary"]
+                if "mirroring" in d:
+                    self.mirroring = d["mirroring"]
+
+            def _to_dict(self):
+                """
+                @override
+                """
+                base = super()._to_dict()
+                base["primary"] = getattr(self, "primary", None)
+
+                if self.secondary:
+                    base["secondary"] = self.secondary
+
+                if self.mirroring:
+                    base["mirroring"] = self.mirroring
+
+                return base
+
+        class HighAvailabilityStatus(CustomResource.SubStatus):
+            """
+            @override CustomResource.SubStatus
+            """
+
+            def __init__(self):
+                super().__init__()
+
+            @property
+            def mirroringCertificate(self) -> str:
+                return getattr(self, "_mirroringCertificate", None)
+
+            @mirroringCertificate.setter
+            def mirroringCertificate(self, mc: str):
+                self._mirroringCertificate = mc
+
+            def _hydrate(self, d: dict):
+                """
+                @override
+                """
+                super()._hydrate(d)
+                if "mirroringCertificate" in d:
+                    self.mirroringCertificate = d["mirroringCertificate"]
+
+            def _to_dict(self):
+                """
+                @override
+                """
+                base = super()._to_dict()
+                base["mirroringCertificate"] = getattr(self, "mirroringCertificate", None)
+                return base
+
         def __init__(self):
             super().__init__()
 
@@ -634,20 +741,12 @@ class SqlmiCustomResource(CustomResource):
             self._secondaryServiceEndpoint = se
 
         @property
-        def mirroringEndpoint(self) -> str:
-            return getattr(self, "_mirroringEndpoint", None)
+        def highAvailability(self) -> HighAvailabilityStatus:
+            return getattr(self, "_highAvailability", None)
 
-        @mirroringEndpoint.setter
-        def mirroringEndpoint(self, me: str):
-            self._mirroringEndpoint = me
-
-        @property
-        def mirroringCertificate(self) -> str:
-            return getattr(self, "_mirroringCertificate", None)
-
-        @mirroringCertificate.setter
-        def mirroringCertificate(self, mc: str):
-            self._mirroringCertificate = mc
+        @highAvailability.setter
+        def highAvailability(self, ha: HighAvailabilityStatus):
+            self._highAvailability = ha
 
         def _hydrate(self, d: dict):
             """
@@ -658,10 +757,9 @@ class SqlmiCustomResource(CustomResource):
                 self.readyReplicas = d["readyReplicas"]
             if "secondaryServiceEndpoint" in d:
                 self.secondaryServiceEndpoint = d["secondaryServiceEndpoint"]
-            if "mirroringEndpoint" in d:
-                self.mirroringEndpoint = d["mirroringEndpoint"]
-            if "mirroringCertificate" in d:
-                self.mirroringCertificate = d["mirroringCertificate"]
+            if "highAvailability" in d:
+                self.highAvailability = self.HighAvailabilityStatus()
+                self.highAvailability._hydrate(d["highAvailability"])
 
         def _to_dict(self):
             """
@@ -672,8 +770,10 @@ class SqlmiCustomResource(CustomResource):
             base["secondaryServiceEndpoint"] = getattr(
                 self, "secondaryServiceEndpoint", None
             )
-            base["mirroringEndpoint"] = getattr(self, "mirroringEndpoint", None)
-            base["mirroringCertificate"] = getattr(self, "mirroringCertificate", None)
+
+            if self.highAvailability:
+                base["highAvailability"] = self.highAvailability._to_dict()
+
             return base
 
     def _hydrate(self, d: dict):
@@ -720,6 +820,7 @@ class SqlmiCustomResource(CustomResource):
     def apply_args(self, **kwargs):
         super().apply_args(**kwargs)
         self._set_if_provided(self.spec, "replicas", kwargs, "replicas")
+        self._set_if_provided(self.spec, "readableSecondaries", kwargs, "readable_secondaries")
         self._set_if_provided(
             self.spec.scheduling.default.resources.requests,
             "memory",

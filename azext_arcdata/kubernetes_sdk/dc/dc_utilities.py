@@ -159,6 +159,9 @@ def get_bootstrapper_deployment(namespace: str, use_k8s: bool = True):
 
 
 def restart_owned_pods(namespace: str, replicaset_name: str, use_k8s=True):
+    """
+    restarts all pods owned by the replicaset
+    """
     KubernetesClient.assert_use_k8s(use_k8s)
 
     owned_pods = select_owned_pods(namespace, replicaset_name)
@@ -172,6 +175,10 @@ def restart_owned_pods(namespace: str, replicaset_name: str, use_k8s=True):
 def set_data_controller_desired_version(
     namespace: str, desired_version: str, use_k8s=True
 ):
+    """
+    applies the desired version to the data controller custom resource spec for the
+    given namespace
+    """
     dc, config = KubernetesClient.get_arc_datacontroller(namespace, use_k8s)
 
     desiredVersionPatch = {"spec": {"docker": {"imageTag": desired_version}}}
@@ -185,6 +192,25 @@ def set_data_controller_desired_version(
         version=dc.version,
     )
     dc, config = KubernetesClient.get_arc_datacontroller(namespace, use_k8s)
+    return dc
+
+
+def patch_data_controller(namespace: str, patch: dict):
+    """
+    applies the patch dictionary to the data controller custom resource spec for the
+    given namespace.  Returns the data controller
+    """
+    dc, config = KubernetesClient.get_arc_datacontroller(namespace, True)
+
+    KubernetesClient.merge_namespaced_custom_object(
+        patch,
+        plural=DATA_CONTROLLER_PLURAL,
+        name=dc.metadata.name,
+        namespace=namespace,
+        group=dc.group,
+        version=dc.version,
+    )
+    dc, config = KubernetesClient.get_arc_datacontroller(namespace, True)
     return dc
 
 

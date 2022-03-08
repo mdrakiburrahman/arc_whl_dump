@@ -31,7 +31,7 @@ from azext_arcdata.core.constants import (
     REGISTRY_PASSWORD,
     REGISTRY_USERNAME,
     DEFAULT_LOGSUI_CERT_SECRET_NAME,
-    DEFAULT_METRICSUI_CERT_SECRET_NAME
+    DEFAULT_METRICSUI_CERT_SECRET_NAME,
 )
 from azext_arcdata.core.kubernetes import create_namespace_with_retry
 
@@ -60,7 +60,10 @@ from azext_arcdata.kubernetes_sdk.client import (
     KubernetesError,
     http_status_codes,
 )
-from azext_arcdata.kubernetes_sdk.util import check_secret_exists_with_retries, create_certificate_secret
+from azext_arcdata.kubernetes_sdk.util import (
+    check_secret_exists_with_retries,
+    create_certificate_secret,
+)
 from azext_arcdata.kubernetes_sdk.dc.common_util import (
     get_kubernetes_infra,
     validate_dc_create_params,
@@ -122,6 +125,7 @@ from azext_arcdata.kubernetes_sdk.dc.constants import (
     CRD_SUPPORTED_IMAGE_VERSIONS,
 )
 from azext_arcdata.kubernetes_sdk.dc.dc_utilities import (
+    patch_data_controller,
     resolve_valid_target_version,
     upgrade_arc_control_plane,
     is_v1,
@@ -287,30 +291,42 @@ class DataControllerClient(object):
         logsui_secret_exists = check_secret_exists_with_retries(
             client, namespace, DEFAULT_LOGSUI_CERT_SECRET_NAME
         )
-        if logsui_secret_exists and (logs_ui_public_key_file or logs_ui_private_key_file):
+        if logsui_secret_exists and (
+            logs_ui_public_key_file or logs_ui_private_key_file
+        ):
             raise ArgumentUsageError(
-                        CERT_ARGUMENT_ERROR_TEMPLATE
-                        .format(DEFAULT_LOGSUI_CERT_SECRET_NAME)
+                CERT_ARGUMENT_ERROR_TEMPLATE.format(
+                    DEFAULT_LOGSUI_CERT_SECRET_NAME
                 )
+            )
         elif not logsui_secret_exists:
             # Fetches and validates the public/private key file params
             #
-            logsui_public_key, logsui_private_key = self._validate_and_fetch_monitoring_keys(
+            (
+                logsui_public_key,
+                logsui_private_key,
+            ) = self._validate_and_fetch_monitoring_keys(
                 logs_ui_public_key_file, logs_ui_private_key_file
             )
-        
+
         metricsui_secret_exists = check_secret_exists_with_retries(
             client, namespace, DEFAULT_METRICSUI_CERT_SECRET_NAME
         )
-        if metricsui_secret_exists and (metrics_ui_public_key_file or metrics_ui_private_key_file):
+        if metricsui_secret_exists and (
+            metrics_ui_public_key_file or metrics_ui_private_key_file
+        ):
             raise ArgumentUsageError(
-                        CERT_ARGUMENT_ERROR_TEMPLATE
-                        .format(DEFAULT_METRICSUI_CERT_SECRET_NAME)
+                CERT_ARGUMENT_ERROR_TEMPLATE.format(
+                    DEFAULT_METRICSUI_CERT_SECRET_NAME
                 )
+            )
         elif not metricsui_secret_exists:
             # Fetches and validates the public/private key file params
             #
-            metricsui_public_key, metricsui_private_key = self._validate_and_fetch_monitoring_keys(
+            (
+                metricsui_public_key,
+                metricsui_private_key,
+            ) = self._validate_and_fetch_monitoring_keys(
                 metrics_ui_public_key_file, metrics_ui_private_key_file
             )
 
@@ -447,7 +463,8 @@ class DataControllerClient(object):
             DAG_CRD,
             ACTIVE_DIRECTORY_CONNECTOR_CRD,
             MONITOR_CRD,
-            DATA_CONTROLLER_CRD
+            KAFKA_CRD,
+            DATA_CONTROLLER_CRD,
         ]
 
         # Create the control plane CRD if it doesn't already exist
@@ -495,16 +512,16 @@ class DataControllerClient(object):
                 dc_cr.metadata.namespace,
                 DEFAULT_LOGSUI_CERT_SECRET_NAME,
                 logsui_public_key,
-                logsui_private_key
+                logsui_private_key,
             )
-        
+
         if metricsui_public_key and metricsui_private_key:
             create_certificate_secret(
                 client,
                 dc_cr.metadata.namespace,
                 DEFAULT_METRICSUI_CERT_SECRET_NAME,
                 metricsui_public_key,
-                metricsui_private_key
+                metricsui_private_key,
             )
 
         self._create_monitoring_secrets(dc_cr)
@@ -770,14 +787,15 @@ class DataControllerClient(object):
                 validate_creds_from_env(default_vars[0], default_vars[1])
 
     def _validate_and_fetch_monitoring_keys(
-        self, public_key_file: str, private_key_file: str) -> Tuple[str, str]:
+        self, public_key_file: str, private_key_file: str
+    ) -> Tuple[str, str]:
 
         if public_key_file and not private_key_file:
             raise ArgumentUsageError(
                 "Please specify both the monitoring public and "
                 "private key files. Only public key file specified."
             )
-        
+
         if private_key_file and not public_key_file:
             raise ArgumentUsageError(
                 "Please specify both the monitoring public and "
@@ -786,7 +804,7 @@ class DataControllerClient(object):
 
         if not private_key_file and not public_key_file:
             return None, None
-        
+
         return parse_cert_files(public_key_file, private_key_file)
 
     def get_data_controller(self, cluster_name):
@@ -1835,7 +1853,7 @@ class DataControllerClient(object):
         self._delete_cluster(namespace)
 
         # Delete the monitor and control plane CRD
-        crd_names = [MONITOR_CRD_NAME, DATA_CONTROLLER_CRD_NAME]
+        crd_names = [MONITOR_CRD_NAME, KAFKA_CRD_NAME, DATA_CONTROLLER_CRD_NAME]
 
         for crd_name in crd_names:
             crd = CustomResourceDefinition(self._client.get_crd(crd_name))
@@ -2187,7 +2205,7 @@ class DataControllerClient(object):
             raise Exception(
                 "One or more postgres preview instances exist in the cluster and must be deleted prior to upgrading the data controller."
             )
-       
+
     # ------------------------------------------------------------------------ #
     # Upgrade
     # ------------------------------------------------------------------------ #
@@ -2221,11 +2239,45 @@ class DataControllerClient(object):
                 self._await_dc_ready(namespace)
             self.stdout("Data controller successfully upgraded.")
 
+    def update_maintenance_window(
+        self,
+        client,
+        namespace=None,
+        maintenance_start=None,
+        maintenance_duration=None,
+        maintenance_recurrence=None,
+        maintenance_time_zone=None,
+    ):
+        """
+        Updates the maintenance window for the given namespace's data controller.  This is a patch operation and as such will only alter parameters that are present
+        """
+        patchBody = {}
+        if maintenance_start is not None:
+            patchBody["start"] = maintenance_start
+
+        if maintenance_duration is not None:
+            patchBody["duration"] = maintenance_duration
+
+        if maintenance_recurrence is not None:
+            patchBody["recurrence"] = maintenance_recurrence
+
+        if maintenance_time_zone is not None:
+            patchBody["timeZone"] = maintenance_time_zone
+
+        patch = {"spec": {"settings": {"maintenance": patchBody}}}
+
+        result = patch_data_controller(namespace, patch)
+
+        return result
+
     def list_upgrades(self, namespace):
         from azext_arcdata.kubernetes_sdk.arc_docker_image_service import (
             ArcDataImageService,
         )
 
+        """
+        Returns a list of all available upgrades from the docker registry defined by the data controller
+        """
         versions = ArcDataImageService.get_available_image_versions(namespace)
         (dc, config) = self._client.get_arc_datacontroller(namespace)
 

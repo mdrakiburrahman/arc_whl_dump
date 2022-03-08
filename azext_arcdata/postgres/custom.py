@@ -32,6 +32,7 @@ from azext_arcdata.core.constants import (
     DATA_CONTROLLER_CRD_VERSION,
     DATA_CONTROLLER_PLURAL,
     USE_K8S_EXCEPTION_TEXT,
+    FEATURE_FLAG_RESOURCE_SYNC,
 )
 from azext_arcdata.core.prompt import prompt, prompt_pass, prompt_y_n
 from azext_arcdata.postgres.constants import (
@@ -261,7 +262,9 @@ def postgres_server_arc_create(
                     )
                 )
             else:
-                is_valid_connectivity_mode(client)
+                if not os.environ.get(FEATURE_FLAG_RESOURCE_SYNC):
+                    is_valid_connectivity_mode(client)
+
                 dc_cr = CustomResource.decode(
                     DataControllerCustomResource, dcs[0]
                 )
@@ -691,7 +694,8 @@ def postgres_server_arc_delete(
             raise ValueError(USE_K8S_EXCEPTION_TEXT)
         check_and_set_kubectl_context()
 
-        is_valid_connectivity_mode(client)
+        if not os.environ.get(FEATURE_FLAG_RESOURCE_SYNC):
+            is_valid_connectivity_mode(client)
 
         # TODO: Support user supplied namespace when the backend supports it
         namespace = namespace or client.namespace

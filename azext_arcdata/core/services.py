@@ -6,8 +6,8 @@
 
 """
 Service interface to all data-sources:
-- direct uses ARM apis
-- indirect uses Kubernetes-native apis
+- Cloud uses ARM apis
+- Kubernetes-native apis
 """
 
 from azext_arcdata.core.output import OutputStream
@@ -363,6 +363,11 @@ class ArmDataControllerServiceProxy(BaseDataControllerServiceProxy, ArmMixin):
             polling=polling,
         )
 
+    def update_maintenance_window(self, cvo: tuple):
+        raise Exception(
+            "Updating basic maintenance windows is only available through kubernetes directly,  please use the --use-k8s switch and run the command again."
+        )
+
     def delete(self, command_value_object: tuple):
         polling = not command_value_object.no_wait
         return self._arm_client.delete_dc(
@@ -489,6 +494,19 @@ class KubernetesDataControllerServiceProxy(
             command_value_object.target,
             dry_run=command_value_object.dry_run,
             nowait=command_value_object.no_wait,
+        )
+
+    def update_maintenance_window(self, cvo: tuple):
+        """
+        Proxy call to pass the update maintenance window command to the appropriate client.
+        """
+        return self._client.update_maintenance_window(
+            cvo.client,
+            cvo.namespace,
+            cvo.maintenance_start,
+            cvo.maintenance_duration,
+            cvo.maintenance_recurrence,
+            cvo.maintenance_time_zone,
         )
 
     def delete(self, command_value_object: tuple):

@@ -91,7 +91,7 @@ def load_arguments(self, _):
         arg_context.argument(
             "storage_class",
             options_list=["--storage-class"],
-            help="The storage class to be use for all data and logs persistent "
+            help="[Required] The storage class to be use for all data and logs persistent "
             "volumes for all data controller pods that require them.",
         )
         arg_context.argument(
@@ -197,6 +197,45 @@ def load_arguments(self, _):
             help="Enable auto upload metrics.",
             choices=["true", "false"],
         )
+
+        # todo: temporarily disabled
+        # todo: see: https://msdata.visualstudio.com/Tina/_workitems/edit/1656601
+
+    # with ArgumentsContext(self, "arcdata dc update mw") as arg_context:
+    #     arg_context.argument(
+    #         "use_k8s",
+    #         options_list=["--use-k8s"],
+    #         arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+    #         action="store_true",
+    #         help="Create data controller using local Kubernetes APIs.",
+    #     )
+    #     arg_context.argument(
+    #         "namespace",
+    #         options_list=["--k8s-namespace", "-k"],
+    #         arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+    #         help="[Required] The Kubernetes namespace with a deployed "
+    #         "data controller.",
+    #     )
+    #     arg_context.argument(
+    #         "maintenance_start",
+    #         options_list=["--start"],
+    #         help="Date time of first maintenance window.",
+    #     )
+    #     arg_context.argument(
+    #         "maintenance_duration",
+    #         options_list=["--duration"],
+    #         help="Duration of the maintenance window.",
+    #     )
+    #     arg_context.argument(
+    #         "maintenance_recurrence",
+    #         options_list=["--recurrence"],
+    #         help="Recurring interval.",
+    #     )
+    #     arg_context.argument(
+    #         "maintenance_time_zone",
+    #         options_list=["--time-zone"],
+    #         help="Timezone used to calculate maintenance window.",
+    #     )
 
     with ArgumentsContext(self, "arcdata dc delete") as arg_context:
         arg_context.argument(
@@ -639,12 +678,6 @@ def load_arguments(self, _):
 
     with ArgumentsContext(self, "arcdata dc upgrade") as arg_context:
         arg_context.argument(
-            "namespace",
-            options_list=["--k8s-namespace", "-k"],
-            help="The Kubernetes namespace in which the data controller "
-            "exists.",
-        )
-        arg_context.argument(
             "desired_version",
             options_list=[
                 "--desired-version",
@@ -663,13 +696,6 @@ def load_arguments(self, _):
             help="Indicates which instance would be upgraded but does not "
             "actually upgrade the instances.",
         )
-
-        arg_context.argument(
-            "use_k8s",
-            options_list=["--use-k8s"],
-            action="store_true",
-            help="upgrade data controller using local Kubernetes APIs.",
-        )
         arg_context.argument(
             "nowait",
             options_list=["--no-wait"],
@@ -684,10 +710,26 @@ def load_arguments(self, _):
             options_list=["--name", "-n"],
             help="The name for the data controller.",
         )
-
+        # -- native --
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="The Kubernetes namespace in which the data controller "
+            "exists.",
+        )
+        arg_context.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            action="store_true",
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Upgrade data controller using local Kubernetes APIs.",
+        )
+        # -- ARM --
         arg_context.argument(
             "resource_group",
             options_list=["--resource-group", "-g"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help=CLI_ARG_RESOURCE_GROUP_TEXT,
         )
 

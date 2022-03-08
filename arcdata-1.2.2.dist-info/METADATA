@@ -1,6 +1,6 @@
 Metadata-Version: 2.0
 Name: arcdata
-Version: 1.2.0
+Version: 1.2.2
 Summary: Tools for managing ArcData.
 Home-page: https://docs.microsoft.com/en-us/azure/azure-arc/data/
 Author: Microsoft Corporation
@@ -19,7 +19,7 @@ License-File: LICENSE
 Requires-Dist: colorama (==0.4.4)
 Requires-Dist: kubernetes (==12.0.1)
 Requires-Dist: pydash (==4.8.0)
-Requires-Dist: jinja2 (==2.10.3)
+Requires-Dist: jinja2 (==3.0.3)
 Requires-Dist: jsonpath-ng (==1.4.3)
 Requires-Dist: jsonpatch (==1.24)
 Requires-Dist: jsonschema (==3.2.0)

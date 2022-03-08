@@ -47,6 +47,9 @@ def load_commands(self, _):
         g.command(
             "upgrade", "dc_upgrade", validator=validators.validate_upgrade
         )
+        # todo: temporarily disabled
+        # todo: see: https://msdata.visualstudio.com/Tina/_workitems/edit/1656601
+        # g.command("update mw", "mw_update")
         g.command(
             "list-upgrades",
             "dc_list_upgrade",

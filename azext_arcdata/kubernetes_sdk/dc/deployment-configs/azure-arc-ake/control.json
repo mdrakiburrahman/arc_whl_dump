@@ -1,5 +1,5 @@
 {
-   "apiVersion": "arcdata.microsoft.com/v2",
+   "apiVersion": "arcdata.microsoft.com/v3",
    "kind": "DataController",
    "metadata": {
       "name": "controlplane"
@@ -14,7 +14,7 @@
       "docker": {
          "registry": "mcr.microsoft.com",
          "repository": "arcdata",
-         "imageTag": "v1.3.0_2022-01-27",
+         "imageTag": "v1.4.0_2022-02-25",
          "imagePullPolicy": "Always"
       },
       "storage": {

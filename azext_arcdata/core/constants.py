@@ -161,6 +161,11 @@ ARC_API_V3 = "v3"
 Defines the kubernetes api version v3 for Arc CRDs.
 """
 
+ARC_API_V4 = "v4"
+"""
+Defines the kubernetes api version v4 for Arc CRDs.
+"""
+
 KUBERNETES_LABEL_PREFIX = "app.kubernetes.io/"
 """
 Defines the prefix for common Kubernetes labels
@@ -182,7 +187,7 @@ DATA_CONTROLLER_PLURAL = "datacontrollers"
 Defines the plural name of data controllers.
 """
 
-DATA_CONTROLLER_CRD_VERSION = ARC_API_V2
+DATA_CONTROLLER_CRD_VERSION = ARC_API_V3
 """
 Defines the kubernetes api version for DataController CRD.
 """
@@ -365,4 +370,13 @@ Supported Azure regions for data controller. This list does not include EUAP reg
 SUPPORTED_EUAP_REGIONS = ["eastus2euap", "centraluseuap", "eastasia"]
 """
 Supported Azure EUAP regions for data controller.
+"""
+
+############################################################################
+# Feature flag constants
+############################################################################
+FEATURE_FLAG_RESOURCE_SYNC = "FEATURE_FLAG_RESOURCE_SYNC"
+"""
+If FEATURE_FLAG_RESOURCE_SYNC environmnet is set, enable kube native miaa and PG operations
+for direct connectivity mode.
 """

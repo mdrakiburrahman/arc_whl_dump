@@ -243,12 +243,129 @@ class CustomResource(SerializationUtils):
         else:
             raise TypeError(TYPE_ERROR.format(type(m), "metadata"))
 
+    class SubStatus(SerializationUtils):
+        """
+        Contains sub status about the resource
+        """
+
+        def __init__(
+            self,
+            state: str = None,
+            healthState: str = None,
+            message: str = None,
+        ):
+            self.state = state
+            self.healthState = healthState
+            self.message = message
+
+        @property
+        def state(self) -> str:
+            return self._state
+
+        @state.setter
+        def state(self, s: str):
+            self._state = s
+
+        @property
+        def healthState(self) -> str:
+            return self._healthState
+
+        @healthState.setter
+        def healthState(self, s: str):
+            self._healthState = s
+
+        @property
+        def message(self) -> str:
+            """
+            Gets message for this sub status.
+            """
+            return self._message
+
+        @message.setter
+        def message(self, e: str):
+            self._message = e
+
+        def _to_dict(self):
+            """
+            @override
+            """
+            return {
+                "state": self.state,
+                "healthState": self.healthState,
+                "message": self.message,
+            }
+
+        def _hydrate(self, d: dict):
+            """
+            @override
+            """
+            if "state" in d:
+                self.state = d["state"]
+            if "healthState" in d:
+                self.healthState = d["healthState"]
+            if "message" in d:
+                self.message = d["message"]
+
+
     class Status(SerializationUtils):
         """
         Contains status information about the resource i.e. what the current state of the resource is
 
         CustomResource.status
         """
+
+        class EndpointsStatus(SerializationUtils):
+            """
+            Contains endpoints status
+            """
+
+            def __init__(
+                self,
+                log_search_dashboard: str = None,
+                metrics_dashboard: str = None,
+                ) -> None:
+                self.log_search_dashboard = log_search_dashboard
+                self.metrics_dashboard = metrics_dashboard
+
+            @property
+            def log_search_dashboard(self) -> str:
+                """
+                The Log Search Dashboard endpoint for this custom resource.
+                """
+                return self._log_search_dashboard
+
+            @log_search_dashboard.setter
+            def log_search_dashboard(self, e: str):
+                self._log_search_dashboard = e
+
+            @property
+            def metrics_dashboard(self) -> str:
+                """
+                The Metrics Dashboard endpoint for this custom resource.
+                """
+                return self._metrics_dashboard
+
+            @metrics_dashboard.setter
+            def metrics_dashboard(self, e: str):
+                self._metrics_dashboard = e
+
+            def _to_dict(self):
+                """
+                @override
+                """
+                return {
+                    "logSearchDashboard": self.log_search_dashboard,
+                    "metricsDashboard": self.metrics_dashboard,
+                }
+
+            def _hydrate(self, d: dict):
+                """
+                @override
+                """
+                if "logSearchDashboard" in d:
+                    self.log_search_dashboard = d["logSearchDashboard"]
+                if "metricsDashboard" in d:
+                    self.metrics_dashboard = d["metricsDashboard"]
 
         def __init__(
             self,
@@ -308,6 +425,17 @@ class CustomResource(SerializationUtils):
             self._metrics_dashboard = e
 
         @property
+        def endpoints(self) -> EndpointsStatus:
+            """
+            The endpoints for this custom resource.
+            """
+            return getattr(self, "_endpoints", None)
+
+        @endpoints.setter
+        def endpoints(self, ep: EndpointsStatus):
+            self._endpoints = ep
+
+        @property
         def observed_generation(self) -> str:
             """
             Gets the most recent custom resource generation observed by the controller
@@ -337,6 +465,7 @@ class CustomResource(SerializationUtils):
                 "primaryEndpoint": self.primaryEndpoint,
                 "logSearchDashboard": self.log_search_dashboard,
                 "metricsDashboard": self.metrics_dashboard,
+                "endpoints": self.endpoints,
                 "state": self.state,
                 "observedGeneration": self.observed_generation,
                 "message": self.message,
@@ -354,6 +483,9 @@ class CustomResource(SerializationUtils):
                 self.log_search_dashboard = d["logSearchDashboard"]
             if "metricsDashboard" in d:
                 self.metrics_dashboard = d["metricsDashboard"]
+            if "endpoints" in d:
+                self.endpoints = self.EndpointsStatus()
+                self.endpoints._hydrate(d["endpoints"])
             if "observedGeneration" in d:
                 self.observed_generation = d["observedGeneration"]
             if "message" in d:

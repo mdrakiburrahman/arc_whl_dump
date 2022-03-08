@@ -1,5 +1,5 @@
 ﻿{
-   "apiVersion": "arcdata.microsoft.com/v2",
+   "apiVersion": "arcdata.microsoft.com/v3",
    "kind": "DataController",
    "metadata": {
       "name": "datacontroller"
