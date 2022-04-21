@@ -4,7 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 __title__ = "arcdata"
-__version__ = "1.2.2"
+__version__ = "1.3.1"
 __description__ = "Tools for managing ArcData."
 __license__ = "MIT"
 __url__ = "https://docs.microsoft.com/en-us/azure/azure-arc/data/"

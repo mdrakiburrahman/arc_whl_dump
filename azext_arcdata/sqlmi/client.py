@@ -11,11 +11,11 @@ from azext_arcdata.core.util import DeploymentConfigUtil, retry
 from azext_arcdata.kubernetes_sdk.client import KubernetesError
 from azext_arcdata.kubernetes_sdk.models.custom_resource import CustomResource
 from azext_arcdata.sqlmi.constants import (
-    DAG_API_GROUP,
-    DAG_API_VERSION,
-    DAG_RESOURCE_KIND_PLURAL,
+    FOG_API_GROUP,
+    FOG_API_VERSION,
+    FOG_RESOURCE_KIND_PLURAL,
 )
-from azext_arcdata.sqlmi.models.dag_cr import DagCustomResource
+from azext_arcdata.sqlmi.models.fog_cr import FogCustomResource
 from azext_arcdata.sqlmi.util import CONNECTION_RETRY_ATTEMPTS, RETRY_INTERVAL
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
@@ -62,18 +62,18 @@ class SqlmiClientMixin(CliClient):
         config_object = DeploymentConfigUtil.config_patch(path, patch_file)
         DeploymentConfigUtil.write_config_file(path, config_object)
 
-    def create_dag(self, cr):
+    def create_fog(self, cr):
         results = None
 
         if self.apis.kubernetes.namespaced_custom_object_exists(
             cr.metadata.name,
             cr.metadata.namespace,
-            group=DAG_API_GROUP,
-            version=DAG_API_VERSION,
-            plural=DAG_RESOURCE_KIND_PLURAL,
+            group=FOG_API_GROUP,
+            version=FOG_API_VERSION,
+            plural=FOG_RESOURCE_KIND_PLURAL,
         ):
             raise ValueError(
-                "Rest API DAG Function API `{}` already exists in "
+                "Rest API Failover Group Function API `{}` already exists in "
                 "namespace `{}`.".format(
                     cr.metadata.name, cr.metadata.namespace
                 )
@@ -83,7 +83,7 @@ class SqlmiClientMixin(CliClient):
         #
         retry(
             lambda: self.apis.kubernetes.create_namespaced_custom_object(
-                cr=cr, plural=DAG_RESOURCE_KIND_PLURAL, ignore_conflict=True
+                cr=cr, plural=FOG_RESOURCE_KIND_PLURAL, ignore_conflict=True
             ),
             retry_count=CONNECTION_RETRY_ATTEMPTS,
             retry_delay=RETRY_INTERVAL,
@@ -102,9 +102,9 @@ class SqlmiClientMixin(CliClient):
                 lambda: self.apis.kubernetes.get_namespaced_custom_object(
                     cr.metadata.name,
                     cr.metadata.namespace,
-                    group=DAG_API_GROUP,
-                    version=DAG_API_VERSION,
-                    plural=DAG_RESOURCE_KIND_PLURAL,
+                    group=FOG_API_GROUP,
+                    version=FOG_API_VERSION,
+                    plural=FOG_RESOURCE_KIND_PLURAL,
                 ),
                 retry_count=CONNECTION_RETRY_ATTEMPTS,
                 retry_delay=RETRY_INTERVAL,
@@ -116,7 +116,7 @@ class SqlmiClientMixin(CliClient):
                 ),
             )
 
-            deployed_cr = CustomResource.decode(DagCustomResource, response)
+            deployed_cr = CustomResource.decode(FogCustomResource, response)
             state = deployed_cr.status.state
             results = deployed_cr.status.results
 

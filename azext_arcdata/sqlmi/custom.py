@@ -7,6 +7,7 @@
 import base64
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -41,7 +42,7 @@ from azext_arcdata.kubernetes_sdk.util import (
     check_secret_exists_with_retries,
 )
 from azext_arcdata.kubernetes_sdk.dc.constants import (
-    DAG_CRD_NAME,
+    FOG_CRD_NAME,
     DATA_CONTROLLER_CRD_NAME,
     SQLMI_CRD,
     SQLMI_CRD_NAME,
@@ -59,10 +60,10 @@ from azext_arcdata.kubernetes_sdk.models.data_controller_custom_resource import 
 from azext_arcdata.sqlmi.constants import (
     API_GROUP,
     API_VERSION,
-    DAG_API_GROUP,
-    DAG_API_VERSION,
-    DAG_RESOURCE_KIND,
-    DAG_RESOURCE_KIND_PLURAL,
+    FOG_API_GROUP,
+    FOG_API_VERSION,
+    FOG_RESOURCE_KIND,
+    FOG_RESOURCE_KIND_PLURAL,
     RESOURCE_KIND,
     RESOURCE_KIND_PLURAL,
     SQLMI_LICENSE_TYPE_DEFAULT,
@@ -75,7 +76,7 @@ from azext_arcdata.sqlmi.constants import (
     DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE,
 )
 from azext_arcdata.sqlmi.exceptions import SqlmiError
-from azext_arcdata.sqlmi.models.dag_cr import DagCustomResource
+from azext_arcdata.sqlmi.models.fog_cr import FogCustomResource
 from azext_arcdata.sqlmi.models.sqlmi_cr_model import SqlmiCustomResource
 from azext_arcdata.sqlmi.sqlmi_utilities import upgrade_sqlmi_instances
 from azext_arcdata.sqlmi.util import (
@@ -83,7 +84,9 @@ from azext_arcdata.sqlmi.util import (
     RETRY_INTERVAL,
     is_valid_connectivity_mode,
     is_valid_sql_password,
+    validate_active_directory_args,
     validate_admin_login_secret,
+    validate_keytab_secret,
     validate_labels_and_annotations,
     validate_dag_roles,
 )
@@ -141,6 +144,15 @@ def arc_sql_mi_create(
     location=None,
     custom_location=None,
     resource_group=None,
+    # -- Active Directory --
+    # ad_connector_name=None,
+    # ad_connector_namespace=None,
+    # ad_account_name=None,
+    # keytab_secret=None,
+    # primary_dns_name=None,
+    # primary_port_number=None,
+    # secondary_dns_name=None,
+    # secondary_port_number=None,
 ):
     """
     Create a SQL managed instance.
@@ -154,11 +166,9 @@ def arc_sql_mi_create(
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            armclient = ArmClient(cred, subscription)
 
-            poller = armclient.create_sqlmi(
+            mi = armclient.create_sqlmi(
                 name=name,
                 path=path,
                 replicas=replicas,
@@ -184,7 +194,14 @@ def arc_sql_mi_create(
                 polling=not no_wait,
             )
 
-            return poller
+            if no_wait:
+                client.stdout(
+                    f"The managed instance '{name}' is being created in the "
+                    f"background, to check status run:\n\naz sql mi-arc show "
+                    f"-n {name} -g {resource_group} --query properties."
+                    f"k8_s_raw.status.state"
+                )
+            return mi
 
         check_and_set_kubectl_context()
         namespace = client.namespace
@@ -252,6 +269,11 @@ def arc_sql_mi_create(
             except ValueError as e:
                 raise CLIError(e)
 
+        if storage_class_backups is not None:
+            kubernetes_util.validate_rwx_storage_class(
+                name=storage_class_backups, type="backup", instanceType="SQLMI"
+            )
+
         # if readable_secondaries is not set. use default value
         #
         if readable_secondaries is None:
@@ -288,6 +310,23 @@ def arc_sql_mi_create(
                 "Arc SQL managed instance `{}` already exists in namespace "
                 "`{}`.".format(name, namespace)
             )
+
+        # Validate Active Directory args if enabling AD auth
+        #
+        """
+        if ad_connector_name or ad_connector_namespace:
+            validate_active_directory_args(
+                client,
+                ad_connector_name,
+                ad_connector_namespace,
+                ad_account_name,
+                keytab_secret,
+                primary_dns_name,
+                primary_port_number,
+                secondary_dns_name,
+                secondary_port_number,
+            )
+        """
 
         if not noexternal_endpoint:
             response = retry(
@@ -567,9 +606,7 @@ def arc_sql_mi_upgrade(
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            armclient = ArmClient(cred, subscription)
 
             armclient.upgrade_sqlmi(
                 resource_group, name, desired_version, no_wait
@@ -691,6 +728,8 @@ def arc_sql_mi_update(
     namespace=None,
     # -- direct --
     resource_group=None,
+    # -- Active Directory --
+    # keytab_secret=None,
 ):
     """
     Edit the configuration of a SQL managed instance.
@@ -710,7 +749,7 @@ def arc_sql_mi_update(
             return False
 
         x += 1
-        if int(replica_name[x:]) >= num_of_replicas:
+        if int(replica_name[x:]) >= int(num_of_replicas):
             return False
         return True
 
@@ -720,9 +759,7 @@ def arc_sql_mi_update(
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            armclient = ArmClient(cred, subscription)
 
             validate_labels_and_annotations(
                 labels,
@@ -733,7 +770,7 @@ def arc_sql_mi_update(
                 None,
             )
 
-            return armclient.update_sqlmi(
+            mi = armclient.update_sqlmi(
                 name=name,
                 replicas=replicas,
                 readable_secondaries=readable_secondaries,
@@ -752,6 +789,15 @@ def arc_sql_mi_update(
                 retention_days=retention_days,
                 resource_group=resource_group,
             )
+
+            if no_wait:
+                client.stdout(
+                    f"The managed instance '{name}' is being updated in the "
+                    f"background, to check status run:\n\naz sql mi-arc show "
+                    f"-n {name} -g {resource_group} --query properties."
+                    f"k8_s_raw.status.state"
+                )
+            return mi
 
         check_and_set_kubectl_context()
         namespace = client.namespace
@@ -776,6 +822,18 @@ def arc_sql_mi_update(
 
         cr.apply_args(**args)
         cr.validate(client.apis.kubernetes)
+
+        # Active Directory only
+        #
+        """
+        if keytab_secret:
+            if not cr.spec.security.activeDirectory:
+                raise CLIError(
+                    "Cannot update Active Directory (AD) keytab if this "
+                    "instance does not have AD enabled."
+                )
+            validate_keytab_secret(client, namespace, keytab_secret)
+        """
 
         if preferred_primary_replica:
             if not _check_replica_name(
@@ -913,9 +971,7 @@ def arc_sql_mi_delete(
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            armclient = ArmClient(cred, subscription)
             poller = armclient.delete_sqlmi(
                 rg_name=resource_group, sqlmi_name=name
             )
@@ -931,7 +987,11 @@ def arc_sql_mi_delete(
                         raise CLIError(poller.status())
                 else:
                     raise CLIError(poller.status())
-            return poller
+            # return poller
+            client.stdout(
+                f"Deleted {name} from resource group {resource_group}"
+            )
+            return
 
         check_and_set_kubectl_context()
 
@@ -969,9 +1029,7 @@ def arc_sql_mi_show(
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            arm_client = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            arm_client = ArmClient(cred, subscription)
 
             response = arm_client.get_sqlmi(
                 rg_name=resource_group, sqlmi_name=name
@@ -1053,9 +1111,7 @@ def arc_sql_mi_list(client, resource_group=None, namespace=None, use_k8s=None):
 
             cred = ArcDataCliCredential()
             subscription = client.subscription
-            armclient = ArmClient(
-                azure_credential=cred, subscription_id=subscription
-            )
+            armclient = ArmClient(cred, subscription)
             items = armclient.list_sqlmi(rg_name=resource_group)
             for item in items:
                 result.append(item)
@@ -1270,15 +1326,15 @@ def arc_sql_mi_config_patch(client, path, patch_file):
         raise CLIError(e)
 
 
-def arc_sql_mi_dag_create(
+def arc_sql_mi_fog_create(
     client,
     name,
-    dag_name,
-    local_instance_name,
+    mi,
     role,
-    remote_instance_name,
-    remote_mirroring_url,
-    remote_mirroring_cert_file,
+    partner_mi,
+    partner_mirroring_url,
+    partner_mirroring_cert_file,
+    shared_name=None,
     namespace=None,
     use_k8s=None,
 ):
@@ -1293,33 +1349,59 @@ def arc_sql_mi_dag_create(
             raise ValueError(DAG_ROLES_ALLOWED_VALUES_MSG_CREATE)
 
         spec_object = {
-            "apiVersion": DAG_API_GROUP + "/" + DAG_API_VERSION,
-            "kind": DAG_RESOURCE_KIND,
+            "apiVersion": FOG_API_GROUP + "/" + FOG_API_VERSION,
+            "kind": FOG_RESOURCE_KIND,
             "metadata": {"name": name},
             "spec": {
-                "input": {
-                    "dagName": dag_name,
-                    "localName": local_instance_name,
-                    "remoteName": remote_instance_name,
-                    "remoteEndpoint": remote_mirroring_url,
-                    "remotePublicCert": "",
-                    "role": role,
-                }
+                "sharedName": shared_name,
+                "sourceMI": mi,
+                "partnerMI": partner_mi,
+                "partnerMirroringURL": partner_mirroring_url,
+                "partnerMirroringCert": "",
+                "role": role,
             },
         }
 
         # Decode base spec and apply args. Must patch namespace in separately
         # since it's not parameterized in this func
         #
-        cr = CustomResource.decode(DagCustomResource, spec_object)
+        cr = CustomResource.decode(FogCustomResource, spec_object)
         cr.metadata.namespace = namespace
         cr.validate(client.apis.kubernetes)
 
-        file = open(remote_mirroring_cert_file, "r")
+        # Fill out the owner reference.
+        response = retry(
+            lambda: client.apis.kubernetes.get_namespaced_custom_object(
+                mi,
+                namespace,
+                group=API_GROUP,
+                version=KubernetesClient.get_crd_version(SQLMI_CRD_NAME),
+                plural=RESOURCE_KIND_PLURAL,
+            ),
+            retry_count=CONNECTION_RETRY_ATTEMPTS,
+            retry_delay=RETRY_INTERVAL,
+            retry_method="get namespaced custom object",
+            retry_on_exceptions=(
+                NewConnectionError,
+                MaxRetryError,
+                KubernetesError,
+            ),
+        )
+        deployed_mi = CustomResource.decode(SqlmiCustomResource, response)
+
+        ownerReference = cr.metadata.OwnerReference(
+            deployed_mi.apiVersion,
+            deployed_mi.kind,
+            deployed_mi.metadata.name,
+            deployed_mi.metadata.uid,
+        )
+        cr.metadata.ownerReferences.append(ownerReference)
+
+        file = open(partner_mirroring_cert_file, "r")
         remote_public_cert = file.read()
         file.close()
 
-        cr.spec.input.remotePublicCert = remote_public_cert
+        cr.spec.partnerMirroringCert = remote_public_cert
 
         client.stdout(
             "create_namespaced_custom_object {0}".format(cr._to_dict())
@@ -1332,7 +1414,7 @@ def arc_sql_mi_dag_create(
                 ),
                 show_time=True,
             ):
-                state, results = client.create_dag(cr)
+                state, results = client.create_fog(cr)
         else:
             client.stdout(
                 "Deploying {0} in namespace `{1}`".format(
@@ -1340,7 +1422,7 @@ def arc_sql_mi_dag_create(
                 )
             )
 
-            state, results = client.create_dag(cr)
+            state, results = client.create_fog(cr)
 
         client.stdout("{0} is Ready".format(cr.metadata.name))
 
@@ -1355,7 +1437,7 @@ def arc_sql_mi_dag_create(
         raise CLIError(e)
 
 
-def arc_sql_mi_dag_update(
+def arc_sql_mi_fog_update(
     client,
     name,
     role,
@@ -1376,14 +1458,14 @@ def arc_sql_mi_dag_update(
         namespace = namespace or client.namespace
 
         # Patch CR
-        patch = {"spec": {"input": {"role": role}}}
+        patch = {"spec": {"role": role}}
         client.apis.kubernetes.merge_namespaced_custom_object(
             body=patch,
             name=name,
             namespace=namespace,
-            group=DAG_API_GROUP,
-            version=DAG_API_VERSION,
-            plural=DAG_RESOURCE_KIND_PLURAL,
+            group=FOG_API_GROUP,
+            version=FOG_API_VERSION,
+            plural=FOG_RESOURCE_KIND_PLURAL,
         )
 
         time.sleep(5)
@@ -1391,11 +1473,11 @@ def arc_sql_mi_dag_update(
         response = client.apis.kubernetes.get_namespaced_custom_object(
             name,
             namespace,
-            group=DAG_API_GROUP,
-            version=DAG_API_VERSION,
-            plural=DAG_RESOURCE_KIND_PLURAL,
+            group=FOG_API_GROUP,
+            version=FOG_API_VERSION,
+            plural=FOG_RESOURCE_KIND_PLURAL,
         )
-        deployed_cr = CustomResource.decode(DagCustomResource, response)
+        deployed_cr = CustomResource.decode(FogCustomResource, response)
 
         if not is_windows():
             with AutomaticSpinner(
@@ -1417,13 +1499,13 @@ def arc_sql_mi_dag_update(
                         client.apis.kubernetes.get_namespaced_custom_object(
                             name,
                             namespace,
-                            group=DAG_API_GROUP,
-                            version=DAG_API_VERSION,
-                            plural=DAG_RESOURCE_KIND_PLURAL,
+                            group=FOG_API_GROUP,
+                            version=FOG_API_VERSION,
+                            plural=FOG_RESOURCE_KIND_PLURAL,
                         )
                     )
                     deployed_cr = CustomResource.decode(
-                        DagCustomResource, response
+                        FogCustomResource, response
                     )
         else:
             client.stdout(
@@ -1443,11 +1525,11 @@ def arc_sql_mi_dag_update(
                 response = client.apis.kubernetes.get_namespaced_custom_object(
                     name,
                     namespace,
-                    group=DAG_API_GROUP,
-                    version=DAG_API_VERSION,
-                    plural=DAG_RESOURCE_KIND_PLURAL,
+                    group=FOG_API_GROUP,
+                    version=FOG_API_VERSION,
+                    plural=FOG_RESOURCE_KIND_PLURAL,
                 )
-                deployed_cr = CustomResource.decode(DagCustomResource, response)
+                deployed_cr = CustomResource.decode(FogCustomResource, response)
 
         if _is_dag_ready(deployed_cr):
             client.stdout("{0} is Ready".format(name))
@@ -1456,7 +1538,7 @@ def arc_sql_mi_dag_update(
         raise CLIError(e)
 
 
-def arc_sql_mi_dag_delete(client, name, namespace=None, use_k8s=None):
+def arc_sql_mi_fog_delete(client, name, namespace=None, use_k8s=None):
 
     args = locals()
     try:
@@ -1471,19 +1553,21 @@ def arc_sql_mi_dag_delete(client, name, namespace=None, use_k8s=None):
         client.apis.kubernetes.delete_namespaced_custom_object(
             name=name,
             namespace=namespace,
-            group=DAG_API_GROUP,
-            version=KubernetesClient.get_crd_version(DAG_CRD_NAME),
-            plural=DAG_RESOURCE_KIND_PLURAL,
+            group=FOG_API_GROUP,
+            version=KubernetesClient.get_crd_version(FOG_CRD_NAME),
+            plural=FOG_RESOURCE_KIND_PLURAL,
         )
         client.stdout(
-            "Deleted dag {} from namespace {}".format(name, namespace)
+            "Deleted Failover Group {} from namespace {}".format(
+                name, namespace
+            )
         )
 
     except Exception as e:
         raise CLIError(e)
 
 
-def arc_sql_mi_dag_show(client, name, namespace=None, use_k8s=None):
+def arc_sql_mi_fog_show(client, name, namespace=None, use_k8s=None):
     try:
         if not use_k8s:
             raise ValueError(USE_K8S_EXCEPTION_TEXT)
@@ -1492,13 +1576,13 @@ def arc_sql_mi_dag_show(client, name, namespace=None, use_k8s=None):
         response = client.apis.kubernetes.get_namespaced_custom_object(
             name,
             namespace,
-            group=DAG_API_GROUP,
-            version=KubernetesClient.get_crd_version(DAG_CRD_NAME),
-            plural=DAG_RESOURCE_KIND_PLURAL,
+            group=FOG_API_GROUP,
+            version=KubernetesClient.get_crd_version(FOG_CRD_NAME),
+            plural=FOG_RESOURCE_KIND_PLURAL,
         )
-        cr = CustomResource.decode(DagCustomResource, response)
+        cr = CustomResource.decode(FogCustomResource, response)
         client.stdout(
-            "input: {}".format(json.dumps(cr.spec.input._to_dict(), indent=4))
+            "spec: {}".format(json.dumps(cr.spec._to_dict(), indent=4))
         )
         client.stdout(
             "status: {}".format(json.dumps(cr.status._to_dict(), indent=4))

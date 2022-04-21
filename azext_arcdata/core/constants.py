@@ -107,6 +107,11 @@ REGISTRY_PASSWORD = "REGISTRY_PASSWORD"
 Alternative definition for the password env variable for docker private registries.
 """
 
+PUBLIC_DOCKER_REGISTRY = "mcr.microsoft.com"
+"""
+The default public image registry.
+"""
+
 CERT_ARGUMENT_ERROR_TEMPLATE = """Kubernetes secret '{}'
                         already exists while private key or public key 
                         files are provided on the command line. If you intend 
@@ -187,7 +192,7 @@ DATA_CONTROLLER_PLURAL = "datacontrollers"
 Defines the plural name of data controllers.
 """
 
-DATA_CONTROLLER_CRD_VERSION = ARC_API_V3
+DATA_CONTROLLER_CRD_VERSION = ARC_API_V4
 """
 Defines the kubernetes api version for DataController CRD.
 """
@@ -340,6 +345,16 @@ Argument text for indirect mode argument group.
 CLI_ARG_GROUP_DIRECT_TEXT = "Direct mode"
 """
 Argument text for direct mode argument group.
+"""
+
+CLI_ARG_GROUP_AD_TEXT = "Active Directory"
+"""
+Argument text for Active Directory argument group.
+"""
+
+CLI_ARG_GROUP_USE_K8S = "Maintenance window"
+"""
+Argument text for arguments that may only be used with the --use-k8s parameter
 """
 
 CLI_ARG_RESOURCE_GROUP_TEXT = (

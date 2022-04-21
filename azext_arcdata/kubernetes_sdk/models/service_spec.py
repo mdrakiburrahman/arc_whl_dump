@@ -21,6 +21,7 @@ class ServiceSpec(SerializationUtils):
         port: int = None,
         labels: dict = None,
         annotations: dict = None,
+        dnsName: str = None,
     ):
         if port:
             self.port = port
@@ -35,6 +36,9 @@ class ServiceSpec(SerializationUtils):
 
         if annotations:
             self.annotations = annotations
+
+        if dnsName:
+            self.dnsName = dnsName
 
     @property
     def serviceType(self) -> str:
@@ -77,6 +81,14 @@ class ServiceSpec(SerializationUtils):
     def annotations(self, a: dict):
         self._annotations = a
 
+    @property
+    def dnsName(self) -> str:
+        return self._dnsName
+
+    @dnsName.setter
+    def dnsName(self, a: str):
+        self._dnsName = a
+
     def _to_dict(self):
         """
         @override
@@ -84,6 +96,7 @@ class ServiceSpec(SerializationUtils):
         return {
             "port": getattr(self, "port", None),
             "type": getattr(self, "serviceType", None),
+            "dnsName": getattr(self, "dnsName", None),
             "labels": getattr(self, "labels", None),
             "annotations": getattr(self, "annotations", None),
         }
@@ -103,3 +116,6 @@ class ServiceSpec(SerializationUtils):
 
         if "annotations" in d:
             self.annotations = d["annotations"]
+
+        if "dnsName" in d:
+            self.dnsName = d["dnsName"]

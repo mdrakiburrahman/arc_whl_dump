@@ -70,7 +70,7 @@ class SqlmiCustomResource(CustomResource):
         def __init__(
             self,
             replicas: int = 1,
-            readableSecondaries: int =0,
+            readableSecondaries: int = 0,
             serviceType: str = None,
             license_type: str = None,
             tier: str = None,
@@ -98,12 +98,14 @@ class SqlmiCustomResource(CustomResource):
             Default to 1, if replica number > 1, it is a HA deployment
             """
             return self._replicas
+
         @property
         def readableSecondaries(self) -> int:
             """
             Default to 0, it is between 0 and < replicas
             """
             return self._readablesecondaries
+
         @property
         def tier(self) -> str:
             """
@@ -145,12 +147,12 @@ class SqlmiCustomResource(CustomResource):
         @property
         def update(self) -> Update:
             return self._update
-        
+
         @update.setter
         @enforcetype(Update)
         def update(self, value: Update):
             self._update = value
-            
+
         class Security(SerializationUtils):
             """
             SqlmiCustomResource.Spec.Security
@@ -160,6 +162,7 @@ class SqlmiCustomResource(CustomResource):
                 self,
                 adminLoginSecret: str = None,
                 serviceCertificateSecret: str = None,
+                activeDirectory: "ActiveDirectory" = None,
             ):
                 self.adminLoginSecret = (
                     adminLoginSecret if adminLoginSecret else str()
@@ -169,6 +172,103 @@ class SqlmiCustomResource(CustomResource):
                     if serviceCertificateSecret
                     else str()
                 )
+                self.activeDirectory = (
+                    activeDirectory
+                    if activeDirectory
+                    else self.ActiveDirectory()
+                )
+
+            class ActiveDirectory(SerializationUtils):
+                """
+                SqlmiCustomResource.Spec.Security.ActiveDirectory
+                """
+
+                def __init__(
+                    self,
+                    active_directory_connector: "ActiveDirectoryConnector" = None,
+                    account_name: str = None,
+                    keytab_secret: str = None,
+                ):
+                    self.active_directory_connector = (
+                        active_directory_connector
+                        if active_directory_connector
+                        else self.ActiveDirectoryConnector()
+                    )
+                    self.account_name = account_name
+                    self.keytab_secret = keytab_secret
+
+                class ActiveDirectoryConnector(SerializationUtils):
+                    def __init__(self, name: str = None, namespace: str = None):
+                        self.name = name
+                        self.namespace = namespace
+
+                    @property
+                    def name(self) -> str:
+                        return self._name
+
+                    @name.setter
+                    def name(self, s: str):
+                        self._name = s
+
+                    @property
+                    def namespace(self) -> str:
+                        return self._namespace
+
+                    @namespace.setter
+                    def namespace(self, s: str):
+                        self._namespace = s
+
+                    def _to_dict(self):
+                        return {"name": self.name, "namespace": self.namespace}
+
+                    def _hydrate(self, d: dict):
+                        if "name" in d:
+                            self.name = d["name"]
+                        if "namespace" in d:
+                            self.namespace = d["namespace"]
+
+                @property
+                def active_directory_connector(
+                    self,
+                ) -> ActiveDirectoryConnector:
+                    return self._active_directory_connector
+
+                @active_directory_connector.setter
+                def active_directory_connector(
+                    self, s: ActiveDirectoryConnector
+                ):
+                    self._active_directory_connector = s
+
+                @property
+                def account_name(self) -> str:
+                    return self._account_name
+
+                @account_name.setter
+                def account_name(self, s: str):
+                    self._account_name = s
+
+                @property
+                def keytab_secret(self) -> str:
+                    return self._keytab_secret
+
+                @keytab_secret.setter
+                def keytab_secret(self, s: str):
+                    self._keytab_secret = s
+
+                def _hydrate(self, d: dict):
+                    if "accountName" in d:
+                        self.account_name = d["accountName"]
+                    if "keytabSecret" in d:
+                        self.keytab_secret = d["keytabSecret"]
+                    if "connector" in d and d["connector"] is not None:
+                        self.active_directory_connector._hydrate(d["connector"])
+
+                def _to_dict(self):
+                    return {
+                        "accountName": self.account_name,
+                        "keytabSecret": self.keytab_secret,
+                        "connector": self.active_directory_connector._to_dict(),
+                    }
 
             @property
             def adminLoginSecret(self) -> str:
@@ -188,6 +288,14 @@ class SqlmiCustomResource(CustomResource):
             def serviceCertificateSecret(self, s):
                 self._serviceCertificateSecret = s
 
+            @property
+            def activeDirectory(self) -> ActiveDirectory:
+                return self._activeDirectory
+
+            @activeDirectory.setter
+            def activeDirectory(self, s):
+                self._activeDirectory = s
+
             def _hydrate(self, d: dict):
                 if "adminLoginSecret" in d:
                     self.adminLoginSecret = d["adminLoginSecret"]
@@ -195,11 +303,14 @@ class SqlmiCustomResource(CustomResource):
                     self.serviceCertificateSecret = d[
                         "serviceCertificateSecret"
                     ]
+                if "activeDirectory" in d and d["activeDirectory"] is not None:
+                    self.activeDirectory._hydrate(d["activeDirectory"])
 
             def _to_dict(self):
                 return {
                     "adminLoginSecret": self.adminLoginSecret,
                     "serviceCertificateSecret": self.serviceCertificateSecret,
+                    "activeDirectory": self.activeDirectory._to_dict(),
                 }
 
         @property
@@ -651,7 +762,7 @@ class SqlmiCustomResource(CustomResource):
             @mirroring.setter
             def mirroring(self, m: str):
                 self._mirroring = m
-            
+
             def _hydrate(self, d: dict):
                 """
                 @override
@@ -708,7 +819,9 @@ class SqlmiCustomResource(CustomResource):
                 @override
                 """
                 base = super()._to_dict()
-                base["mirroringCertificate"] = getattr(self, "mirroringCertificate", None)
+                base["mirroringCertificate"] = getattr(
+                    self, "mirroringCertificate", None
+                )
                 return base
 
         def __init__(self):
@@ -820,7 +933,9 @@ class SqlmiCustomResource(CustomResource):
     def apply_args(self, **kwargs):
         super().apply_args(**kwargs)
         self._set_if_provided(self.spec, "replicas", kwargs, "replicas")
-        self._set_if_provided(self.spec, "readableSecondaries", kwargs, "readable_secondaries")
+        self._set_if_provided(
+            self.spec, "readableSecondaries", kwargs, "readable_secondaries"
+        )
         self._set_if_provided(
             self.spec.scheduling.default.resources.requests,
             "memory",
@@ -930,6 +1045,51 @@ class SqlmiCustomResource(CustomResource):
                     "annotations",
                     annotations,
                 )
+
+        # Set Active Directory args
+        #
+        self._set_if_provided(
+            self.spec.security.activeDirectory,
+            "account_name",
+            kwargs,
+            "ad_account_name",
+        )
+        self._set_if_provided(
+            self.spec.security.activeDirectory,
+            "keytab_secret",
+            kwargs,
+            "keytab_secret",
+        )
+        self._set_if_provided(
+            self.spec.security.activeDirectory.active_directory_connector,
+            "name",
+            kwargs,
+            "ad_connector_name",
+        )
+        self._set_if_provided(
+            self.spec.security.activeDirectory.active_directory_connector,
+            "namespace",
+            kwargs,
+            "ad_connector_namespace",
+        )
+        self._set_if_provided(
+            self.spec.services.primary, "dnsName", kwargs, "primary_dns_name"
+        )
+        self._set_if_provided(
+            self.spec.services.primary, "port", kwargs, "primary_port_number"
+        )
+        # self._set_if_provided(
+        #     self.spec.services.secondary,
+        #     "dnsName",
+        #     kwargs,
+        #     "secondary_dns_name"
+        # )
+        # self._set_if_provided(
+        #     self.spec.services.secondary,
+        #     "port",
+        #     kwargs,
+        #     "secondary_port_number"
+        # )
 
         # Construct SQL MI settings based on args
         #

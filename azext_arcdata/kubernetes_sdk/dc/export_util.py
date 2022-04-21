@@ -18,8 +18,8 @@ import requests
 from azext_arcdata.core.http_codes import http_status_codes
 from azext_arcdata.core.prompt import prompt_for_input, prompt_y_n
 from azext_arcdata.core.util import display, retry
-from azext_arcdata.dc.azure import constants as azure_constants
-from azext_arcdata.dc.azure.ad_auth_util import acquire_token
+from azext_arcdata.arm_sdk.azure import constants as azure_constants
+from azext_arcdata.arm_sdk.azure.ad_auth_util import acquire_token
 from azext_arcdata.dc.constants import (
     DEFAULT_LOG_QUERY_WINDOW_IN_MINUTE,
     DEFAULT_METRIC_QUERY_WINDOW_IN_MINUTE,

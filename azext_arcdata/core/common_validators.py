@@ -4,6 +4,75 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from azure.cli.core.azclierror import ArgumentUsageError
+
+
+def validate_mutually_exclusive_arm_kubernetes(
+    namespace, kubernetes_only, arm_only
+):
+    # -- ARM path  --
+    if not namespace.use_k8s:
+        required_for_arm = []  # assert [Required]
+
+        if not namespace.resource_group:
+            required_for_arm.append("--resource-group/-g")
+
+        if not namespace.custom_location:
+            required_for_arm.append("--custom-location")
+
+        if not namespace.cluster_name:
+            required_for_arm.append("--cluster-name")
+
+        if required_for_arm:
+            msg = (
+                "The following arguments are required: {missing} when "
+                "'--use-k8s' is not provided."
+            )
+            raise ArgumentUsageError(
+                msg.format(missing=", ".join(required_for_arm))
+            )
+
+        # -- assert only non arm args are provided --
+        for arg in namespace.__dict__:
+            value = namespace.__dict__[arg]
+            if arg in kubernetes_only and value:
+                arg = "--{}".format(arg.replace("_", "-"))
+                msg = (
+                    f"The following arguments are not permitted without "
+                    f"the '--use-k8s' argument: {arg}"
+                )
+                raise ArgumentUsageError(msg)
+
+    # -- kubernetes path --
+    if namespace.use_k8s:
+        required_for_kubernetes = []  # assert [Required]
+        if not namespace.namespace:
+            required_for_kubernetes.append("--k8s-namespace/-k")
+
+        if not namespace.location:
+            required_for_kubernetes.append("--location/l")
+
+        if required_for_kubernetes:
+            msg = (
+                "The following arguments are required with '--use-k8s': "
+                "{missing}"
+            )
+            raise ArgumentUsageError(
+                msg.format(missing=", ".join(required_for_kubernetes))
+            )
+        not_permitted = []
+        for arg in namespace.__dict__:
+            value = namespace.__dict__[arg]
+            if arg in arm_only and value:
+                not_permitted.append("--{}".format(arg.replace("_", "-")))
+
+        if not_permitted:
+            msg = (
+                f"The following arguments are not permitted with the "
+                f"'--use-k8s' argument: {', '.join(not_permitted)}"
+            )
+            raise ArgumentUsageError(msg)
+
 
 def validate_mutually_exclusive_direct_indirect(
     namespace, required_direct=None, direct_only=None, ignore_direct=None

@@ -4,10 +4,15 @@
 
 import os
 
-from azext_arcdata.core.constants import ARC_API_V1, ARC_API_V2, ARC_API_V3
+from azext_arcdata.core.constants import (
+    ARC_API_V1,
+    ARC_API_V2,
+    ARC_API_V3,
+    ARC_API_V4,
+)
 from azext_arcdata.postgres.constants import POSTGRES_SPEC
 from azext_arcdata.sqlmi.constants import (
-    DAG_SPEC,
+    FOG_SPEC,
     SQLMI_RESTORE_TASK_SPEC,
     SQLMI_SPEC,
 )
@@ -134,6 +139,13 @@ ACTIVE_DIRECTORY_CONNECTOR_CRD = os.path.join(
 File location for active directory connector CRD.
 """
 
+ACTIVE_DIRECTORY_CONNECTOR_CRD_NAME = (
+    "activedirectoryconnectors.arcdata.microsoft.com"
+)
+"""
+Well known name of the active directory connector crd
+"""
+
 POSTGRES_CRD = os.path.join(TEMPLATE_DIR, "postgres_crd.yaml")
 """
 File location for postgres CRD.
@@ -169,14 +181,14 @@ SQLMI_RESTORE_TASK_CRD_NAME = (
 Well known name of the sqlmi-restore-task CRD
 """
 
-DAG_CRD = os.path.join(TEMPLATE_DIR, "dag_crd.yaml")
+FOG_CRD = os.path.join(TEMPLATE_DIR, "fog_crd.yaml")
 """
-File location for distributed AG CRD.
+File location for Failover Group CRD.
 """
 
-DAG_CRD_NAME = "dags.sql.arcdata.microsoft.com"
+FOG_CRD_NAME = "failovergroups.sql.arcdata.microsoft.com"
 """
-Well known name of the DAG CRD
+Well known name of the Failover Group CRD
 """
 
 EXPORT_TASK_CRD = os.path.join(TEMPLATE_DIR, "export-crd.yaml")
@@ -425,7 +437,7 @@ CRD_FILE_DICT = {
     "SqlManagedInstance": SQLMI_CRD,
     "SqlManagedInstanceRestoreTask": SQLMI_RESTORE_TASK_CRD,
     "ExportTask": EXPORT_TASK_CRD,
-    "Dag": DAG_CRD,
+    "FailoverGroup": FOG_CRD,
     "ActiveDirectoryConnector": ACTIVE_DIRECTORY_CONNECTOR_CRD,
     "Monitor": MONITOR_CRD,
     "Kafka": KAFKA_CRD,
@@ -437,7 +449,7 @@ SPEC_FILE_DICT = {
     "SqlManagedInstance": SQLMI_SPEC,
     "SqlManagedInstanceRestoreTask": SQLMI_RESTORE_TASK_SPEC,
     "ExportTask": EXPORT_TASK_SPEC,
-    "Dag": DAG_SPEC,
+    "FailoverGroup": FOG_SPEC,
     "Monitor": MONITOR_SPEC,
     "DataController": DATA_CONTROLLER_SPEC,
 }
@@ -445,7 +457,8 @@ SPEC_FILE_DICT = {
 CRD_SUPPORTED_IMAGE_VERSIONS = {
     ARC_API_V1: ["v1.0.0"],
     ARC_API_V2: ["v1.1.0", "v1.2.0", "v1.3.0"],
-    ARC_API_V3: ["v1.4.0"],
+    ARC_API_V3: ["v1.4.0", "v1.4.1"],
+    ARC_API_V4: ["v1.5.0"],
 }
 
 RESOURCE_KIND_DATA_CONTROLLER = "dataController"

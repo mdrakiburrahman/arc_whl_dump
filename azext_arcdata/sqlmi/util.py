@@ -4,13 +4,19 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-import base64
-import os
 from collections import OrderedDict
+from azext_arcdata.ad_connector.constants import (
+    AD_CONNECTOR_API_GROUP,
+    AD_CONNECTOR_RESOURCE_KIND_PLURAL,
+)
+from azext_arcdata.ad_connector.validators import _validate_domain_name
+from azext_arcdata.kubernetes_sdk.dc.constants import (
+    ACTIVE_DIRECTORY_CONNECTOR_CRD_NAME,
+    DATA_CONTROLLER_CRD_NAME,
+)
+from azext_arcdata.kubernetes_sdk.util import check_secret_exists_with_retries
 from azext_arcdata.kubernetes_sdk.dc.constants import DATA_CONTROLLER_CRD_NAME
-
-import pem
-import yaml
+from azext_arcdata.core.constants import ARC_API_V1BETA2
 from azext_arcdata.core.constants import (
     ARC_GROUP,
     DATA_CONTROLLER_CRD_VERSION,
@@ -22,6 +28,7 @@ from azext_arcdata.core.util import is_valid_password, retry
 from azext_arcdata.kubernetes_sdk.client import (
     K8sApiException,
     KubernetesClient,
+    KubernetesError,
     http_status_codes,
 )
 from azext_arcdata.sqlmi.constants import (
@@ -36,6 +43,11 @@ from azext_arcdata.sqlmi.constants import (
 from azext_arcdata.sqlmi.exceptions import SqlmiError
 from knack.cli import CLIError
 from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+import pem
+import yaml
+import base64
+import os
 
 CONNECTION_RETRY_ATTEMPTS = 12
 RETRY_INTERVAL = 5
@@ -240,6 +252,7 @@ def validate_sqlmi_license_type(license_type):
 
     return False
 
+
 def get_valid_dag_roles(for_create):
     """
     Get the valid dag roles
@@ -249,16 +262,20 @@ def get_valid_dag_roles(for_create):
     else:
         return DAG_ROLES_UPDATE
 
+
 def validate_dag_roles(role_value, for_create):
     """
     returns True if role_value is valid
     """
     if role_value is None:
         return False
-    if role_value.lower() in (t.lower() for t in get_valid_dag_roles(for_create)):
+    if role_value.lower() in (
+        t.lower() for t in get_valid_dag_roles(for_create)
+    ):
         return True
 
     return False
+
 
 def validate_labels_and_annotations(
     labels,
@@ -303,6 +320,7 @@ def validate_labels_and_annotations(
             parse_labels(storage_annotations)
         except ValueError as e:
             raise CLIError("Storage annotations invalid: {}".format(e))
+
 
 def validate_admin_login_secret(client, namespace, admin_login_secret):
     """
@@ -374,3 +392,146 @@ def validate_admin_login_secret(client, namespace, admin_login_secret):
             "letters, Lowercase letters, Base 10 digits, "
             "and Symbols."
         )
+
+
+def validate_ad_connector(client, name, namespace):
+    if not name or not namespace:
+        raise ValueError(
+            "To enable Active Directory (AD) authentication, both the resource name and namespace of the AD connector are required."
+        )
+
+    custom_object_exists = retry(
+        lambda: client.apis.kubernetes.namespaced_custom_object_exists(
+            name,
+            namespace,
+            group=AD_CONNECTOR_API_GROUP,
+            version=KubernetesClient.get_crd_version(
+                ACTIVE_DIRECTORY_CONNECTOR_CRD_NAME
+            ),
+            plural=AD_CONNECTOR_RESOURCE_KIND_PLURAL,
+        ),
+        retry_method="get namespaced custom object",
+        retry_on_exceptions=(
+            NewConnectionError,
+            MaxRetryError,
+            KubernetesError,
+        ),
+    )
+
+    if not custom_object_exists:
+        raise ValueError(
+            "Active Directory connector `{}` does not exist in namespace "
+            "`{}`.".format(name, namespace)
+        )
+
+
+def validate_keytab_secret(client, namespace, keytab_secret_name):
+    """
+    Validates that the given keytab secret exists
+    """
+    keytab_entry_in_secret = "keytab"
+
+    # Check if secret exists
+    #
+    if not check_secret_exists_with_retries(
+        client.apis.kubernetes, namespace, keytab_secret_name
+    ):
+        raise ValueError(
+            "Kubernetes secret `{}` not found in namespace `{}`.".format(
+                keytab_secret_name, namespace
+            )
+        )
+
+    k8s_secret = retry(
+        lambda: client.apis.kubernetes.get_secret(
+            namespace, keytab_secret_name
+        ),
+        retry_method="get secret",
+        retry_on_exceptions=(
+            NewConnectionError,
+            MaxRetryError,
+            K8sApiException,
+        ),
+    )
+
+    secret_data = k8s_secret.data
+
+    # Check if keytab exists in the secret
+    #
+    if keytab_entry_in_secret not in secret_data:
+        raise ValueError(
+            "Kubernetes secret '{0}' does not have key '{1}'".format(
+                keytab_secret_name, keytab_entry_in_secret
+            )
+        )
+
+
+def validate_dns_service(name="", port=0, type="primary"):
+    if not _validate_domain_name(name):
+        raise ValueError(
+            "The {0} DNS service name '{1}' is invalid.".format(type, name)
+        )
+
+    try:
+        port = int(port)
+        assert 0 <= port <= 65535
+        return True
+    except:
+        raise ValueError(
+            "The {0} DNS service port '{1}' is invalid.".format(type, port)
+        )
+
+
+def validate_active_directory_args(
+    client,
+    ad_connector_name,
+    ad_connector_namespace,
+    ad_account_name,
+    keytab_secret,
+    primary_dns_name,
+    primary_port_number,
+    secondary_dns_name,
+    secondary_port_number,
+):
+    validate_ad_connector(client, ad_connector_name, ad_connector_namespace)
+    validate_keytab_secret(client, ad_connector_namespace, keytab_secret)
+
+    if not ad_account_name:
+        raise ValueError(
+            "The Active Directory account name for this Arc-enabled SQL Managed Instance is missing or invalid."
+        )
+
+    validate_dns_service(primary_dns_name, primary_port_number, "primary")
+
+    if secondary_dns_name or secondary_port_number:
+        validate_dns_service(
+            secondary_dns_name, secondary_port_number, "secondary"
+        )
+
+
+DAG_RESOURCE_KIND = "Dag"
+DAG_RESOURCE_KIND_PLURAL = "dags"
+DAG_API_GROUP = "sql.arcdata.microsoft.com"
+DAG_API_VERSION = ARC_API_V1BETA2
+
+
+def resolve_old_dag_items(
+    namespace,
+) -> list:
+
+    client = KubernetesClient.resolve_k8s_client().CustomObjectsApi()
+
+    try:
+        response = client.list_namespaced_custom_object(
+            namespace=namespace,
+            group=DAG_API_GROUP,
+            version=DAG_API_VERSION,
+            plural=DAG_RESOURCE_KIND_PLURAL,
+        )
+        items = response.get("items")
+        return items
+    except K8sApiException as e:
+        if e.status == http_status_codes.not_found:
+            return []
+        else:
+            raise e

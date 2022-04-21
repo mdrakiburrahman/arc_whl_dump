@@ -3,6 +3,7 @@ import json
 import re
 import sys
 from typing import Tuple
+from azext_arcdata.core.constants import PUBLIC_DOCKER_REGISTRY
 
 import pydash as _
 import requests
@@ -66,7 +67,10 @@ class ArcDataImageService:
         registry = datacontroller.spec.docker.registry
         repository = datacontroller.spec.docker.repository
 
-        if docker_secret is not None:
+        if (
+            docker_secret is not None
+            and registry.lower().strip() != PUBLIC_DOCKER_REGISTRY
+        ):
             """
             resolve secret from the k8s store
             """
@@ -85,7 +89,7 @@ class ArcDataImageService:
         except:
             return (
                 ArcDataImageService.get_available_image_versions_from_registry(
-                    "mcr.microsoft.com", "arcdata"
+                    PUBLIC_DOCKER_REGISTRY, "arcdata"
                 )
             )
 
@@ -241,5 +245,12 @@ class ArcDataImageService:
                 "repository {1} scope.".format(registry, repository)
             )
             return ""
-        token = json.loads(bytes.decode(response.content))["access_token"]
+
+        token = ""
+
+        try:
+            token = json.loads(bytes.decode(response.content))["access_token"]
+        except Exception:
+            pass  # retrieved a 200 response from the registry, but it did not contain a valid token.  This may mean the registry does not require authentication.
+
         return token

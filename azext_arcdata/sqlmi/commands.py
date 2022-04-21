@@ -70,12 +70,12 @@ def load_commands(self, _):
         g.command("remove", "arc_sql_mi_config_remove")
 
     with self.command_group(
-        "sql mi-arc dag", operations, client_factory=beget
+        "sql instance-failover-group-arc", operations, client_factory=beget
     ) as g:
-        g.command("create", "arc_sql_mi_dag_create")
-        g.command("update", "arc_sql_mi_dag_update")
-        g.command("delete", "arc_sql_mi_dag_delete")
-        g.show_command("show", "arc_sql_mi_dag_show")
+        g.command("create", "arc_sql_mi_fog_create")
+        g.command("update", "arc_sql_mi_fog_update")
+        g.command("delete", "arc_sql_mi_fog_delete")
+        g.show_command("show", "arc_sql_mi_fog_show")
 
-    with self.command_group("sql mi-arc dag", is_preview=True):
+    with self.command_group("sql instance-failover-group-arc", is_preview=True):
         pass

@@ -5,7 +5,13 @@
 # ------------------------------------------------------------------------------
 
 from azext_arcdata.core.http_codes import http_status_codes
-from azext_arcdata.core.util import display, retry
+from azext_arcdata.core.util import (
+    display,
+    retry,
+)
+from knack.log import get_logger
+
+logger = get_logger(__name__)
 from azext_arcdata.core.constants import (
     DOCKER_USERNAME,
     DOCKER_PASSWORD,
@@ -13,19 +19,19 @@ from azext_arcdata.core.constants import (
     REGISTRY_PASSWORD,
 )
 from kubernetes.client.exceptions import ApiException
-
 from urllib3.exceptions import NewConnectionError, MaxRetryError
 from http import HTTPStatus
 from kubernetes import client as k8sClient
 from kubernetes.client.rest import ApiException as K8sApiException
 from knack.log import get_logger
+from kubernetes import client, config
+from kubernetes.config.config_exception import ConfigException
 
 import base64
 import json
 import os
 import re
 import yaml
-
 
 logger = get_logger(__name__)
 
@@ -189,43 +195,59 @@ def delete_cluster_resources(cluster_name, label=None):
         body = k8sClient.V1DeleteOptions()
 
         logger.debug("Deleting stateful sets")
-        wrap_404(lambda: k8sClient.AppsV1Api().delete_collection_namespaced_stateful_set(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.AppsV1Api().delete_collection_namespaced_stateful_set(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting daemon sets")
-        wrap_404(lambda: k8sClient.AppsV1Api().delete_collection_namespaced_daemon_set(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.AppsV1Api().delete_collection_namespaced_daemon_set(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting deployments")
-        wrap_404(lambda: k8sClient.AppsV1Api().delete_collection_namespaced_deployment(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.AppsV1Api().delete_collection_namespaced_deployment(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting replica sets")
-        wrap_404(lambda: k8sClient.AppsV1Api().delete_collection_namespaced_replica_set(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.AppsV1Api().delete_collection_namespaced_replica_set(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting services")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_service_account(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_service_account(
+                namespace=cluster_name, **kwargs
+            )
+        )
         services = (
             k8sClient.CoreV1Api()
             .list_namespaced_service(namespace=cluster_name, **kwargs)
             .items
         )
         for service in services:
-            wrap_404(lambda: k8sClient.CoreV1Api().delete_namespaced_service(
-                name=service.metadata.name, namespace=cluster_name, body=body
-            ))
+            wrap_404(
+                lambda: k8sClient.CoreV1Api().delete_namespaced_service(
+                    name=service.metadata.name,
+                    namespace=cluster_name,
+                    body=body,
+                )
+            )
 
         logger.debug("Deleting secrets")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_secret(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_secret(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         secrets = (
             k8sClient.CoreV1Api()
@@ -235,28 +257,38 @@ def delete_cluster_resources(cluster_name, label=None):
         controller_token_secret = "controller-token-secret"
         names = [n.metadata.name for n in secrets]
         if names and controller_token_secret in names:
-            wrap_404(lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
-                name=controller_token_secret, namespace=cluster_name, body=body
-            ))
+            wrap_404(
+                lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
+                    name=controller_token_secret,
+                    namespace=cluster_name,
+                    body=body,
+                )
+            )
 
         controller_token_private_secret = "controller-token-private-secret"
         if names and controller_token_private_secret in names:
-            wrap_404(lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
-                name=controller_token_private_secret,
-                namespace=cluster_name,
-                body=body,
-            ))
+            wrap_404(
+                lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
+                    name=controller_token_private_secret,
+                    namespace=cluster_name,
+                    body=body,
+                )
+            )
 
         app_service_proxy = "appproxy-secret"
         if names and app_service_proxy in names:
-            wrap_404(lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
-                name=app_service_proxy, namespace=cluster_name, body=body
-            ))
+            wrap_404(
+                lambda: k8sClient.CoreV1Api().delete_namespaced_secret(
+                    name=app_service_proxy, namespace=cluster_name, body=body
+                )
+            )
 
         logger.debug("Deleting persistent volume claims")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_persistent_volume_claim(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_persistent_volume_claim(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting Controller replica set")
         controller_replicaset = "control"
@@ -267,28 +299,40 @@ def delete_cluster_resources(cluster_name, label=None):
         )
         names = [n.metadata.name for n in replicasets]
         if names and controller_replicaset in names:
-            wrap_404(lambda: k8sClient.AppsV1Api().delete_namespaced_replica_set(
-                name=controller_replicaset, namespace=cluster_name, body=body
-            ))
+            wrap_404(
+                lambda: k8sClient.AppsV1Api().delete_namespaced_replica_set(
+                    name=controller_replicaset,
+                    namespace=cluster_name,
+                    body=body,
+                )
+            )
 
         logger.debug("Deleting pods")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_pod(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_pod(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting service accounts")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_service_account(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_service_account(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         logger.debug("Deleting roles")
-        wrap_404(lambda: k8sClient.RbacAuthorizationV1Api().delete_collection_namespaced_role_binding(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.RbacAuthorizationV1Api().delete_collection_namespaced_role_binding(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
-        wrap_404(lambda: k8sClient.RbacAuthorizationV1Api().delete_collection_namespaced_role(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.RbacAuthorizationV1Api().delete_collection_namespaced_role(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         admin_rule = "namespaced-admin"
         roles = (
@@ -298,14 +342,18 @@ def delete_cluster_resources(cluster_name, label=None):
         )
         names = [n.metadata.name for n in roles]
         if names and admin_rule in names:
-            wrap_404(lambda: k8sClient.RbacAuthorizationV1Api().delete_namespaced_role(
-                name=admin_rule, namespace=cluster_name, body=body
-            ))
+            wrap_404(
+                lambda: k8sClient.RbacAuthorizationV1Api().delete_namespaced_role(
+                    name=admin_rule, namespace=cluster_name, body=body
+                )
+            )
 
         logger.debug("Deleting config maps")
-        wrap_404(lambda: k8sClient.CoreV1Api().delete_collection_namespaced_config_map(
-            namespace=cluster_name, **kwargs
-        ))
+        wrap_404(
+            lambda: k8sClient.CoreV1Api().delete_collection_namespaced_config_map(
+                namespace=cluster_name, **kwargs
+            )
+        )
 
         return (namespace_is_empty(cluster_name, label=label), HTTPStatus.OK)
 
@@ -427,14 +475,18 @@ def update_private_registry_secret(
     docker_registry,
     secret_name=DEFAULT_DOCKER_IMAGE_PULL_SECRET_NAME,
     user_name=None,
-    password=None
+    password=None,
 ):
     """
     Update private docker repository secret.
     """
     try:
         body = create_registry_secret(
-            cluster_name, docker_registry, secret_name=secret_name, user_name=user_name, password=password  
+            cluster_name,
+            docker_registry,
+            secret_name=secret_name,
+            user_name=user_name,
+            password=password,
         )
 
         k8sClient.CoreV1Api().patch_namespaced_secret(
@@ -459,7 +511,7 @@ def create_registry_secret(
     docker_registry,
     secret_name=DEFAULT_DOCKER_IMAGE_PULL_SECRET_NAME,
     user_name=None,
-    password=None
+    password=None,
 ):
     """
     Create the private docker repository secret.
@@ -553,20 +605,28 @@ def update_cluster_role(cluster_role_name, cluster_role_body):
         )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
-            k8sClient.RbacAuthorizationV1Api().create_cluster_role(body=cluster_role_body)
+            k8sClient.RbacAuthorizationV1Api().create_cluster_role(
+                body=cluster_role_body
+            )
         else:
             raise
 
 
 def delete_service_account(name, namespace):
     try:
-        k8sClient.CoreV1Api().delete_namespaced_service_account(name=name, namespace=namespace)
+        k8sClient.CoreV1Api().delete_namespaced_service_account(
+            name=name, namespace=namespace
+        )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
             # already deleted
             pass
         else:
-            logger.error("Could not delete ServiceAccount {0} in namespace {1}.  Please delete manually.".format(name, namespace))
+            logger.error(
+                "Could not delete ServiceAccount {0} in namespace {1}.  Please delete manually.".format(
+                    name, namespace
+                )
+            )
             raise
 
 
@@ -575,13 +635,19 @@ def delete_cluster_role(cluster_role_name):
     Update the cluster role.
     """
     try:
-        k8sClient.RbacAuthorizationV1Api().delete_cluster_role(name=cluster_role_name)
+        k8sClient.RbacAuthorizationV1Api().delete_cluster_role(
+            name=cluster_role_name
+        )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
             # already deleted
             pass
         else:
-            logger.error("Could not delete ClusterRole {0}.  Please delete manually.".format(cluster_role_name))
+            logger.error(
+                "Could not delete ClusterRole {0}.  Please delete manually.".format(
+                    cluster_role_name
+                )
+            )
             raise
 
 
@@ -590,13 +656,19 @@ def delete_cluster_role_binding(cluster_role_binding_name):
     delete the cluster role.
     """
     try:
-        k8sClient.RbacAuthorizationV1Api().delete_cluster_role_binding(name=cluster_role_binding_name)
+        k8sClient.RbacAuthorizationV1Api().delete_cluster_role_binding(
+            name=cluster_role_binding_name
+        )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
             # already deleted
             pass
         else:
-            logger.error("Could not delete ClusterRoleBinding {0}.  Please delete manually.".format(cluster_role_binding_name))
+            logger.error(
+                "Could not delete ClusterRoleBinding {0}.  Please delete manually.".format(
+                    cluster_role_binding_name
+                )
+            )
             raise
 
 
@@ -612,7 +684,9 @@ def update_cluster_role_binding(
         )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
-            k8sClient.RbacAuthorizationV1Api().create_cluster_role_binding(body=cluster_role_binding_body)
+            k8sClient.RbacAuthorizationV1Api().create_cluster_role_binding(
+                body=cluster_role_binding_body
+            )
         else:
             raise
 
@@ -709,10 +783,12 @@ def update_service_account(namespace, name, service_account_body):
         )
     except K8sApiException as e:
         if e.status == HTTPStatus.NOT_FOUND:
-            k8sClient.CoreV1Api().create_namespaced_service_account(namespace=namespace, body=service_account_body)
+            k8sClient.CoreV1Api().create_namespaced_service_account(
+                namespace=namespace, body=service_account_body
+            )
         else:
             raise
-        
+
 
 def namespaced_role_exists(cluster_name, role_name):
     """
@@ -787,7 +863,9 @@ def is_instance_ready(cr):
     )
 
 
-def create_namespace_with_retry(namespace: str, cluster_label_key: str = None, annotations: dict = None):
+def create_namespace_with_retry(
+    namespace: str, cluster_label_key: str = None, annotations: dict = None
+):
     """
     Create kubernetes namespace
     """
@@ -829,15 +907,12 @@ def create_namespace_with_retry(namespace: str, cluster_label_key: str = None, a
         retry_method="check if namespace is empty",
         retry_on_exceptions=(NewConnectionError, MaxRetryError),
     ):
-        namespace_response = k8sClient.CoreV1Api().read_namespace(
-            namespace
-        )
+        namespace_response = k8sClient.CoreV1Api().read_namespace(namespace)
 
         if cluster_label_key:
             if (
                 namespace_response.metadata.labels is None
-                or cluster_label_key
-                not in namespace_response.metadata.labels
+                or cluster_label_key not in namespace_response.metadata.labels
             ):
                 display(
                     'NOTE: Namespace "%s" is already created and will '
@@ -869,3 +944,62 @@ def create_namespace_with_retry(namespace: str, cluster_label_key: str = None, a
             " to see the existing objects in the namespace"
             % (namespace, namespace)
         )
+
+
+def validate_rwx_storage_class(name: str, type: str, instanceType: str):
+    try:
+        config.load_incluster_config()
+    except ConfigException as e:
+        config.load_kube_config()
+    storageClass = None
+    for s in client.StorageV1Api().list_storage_class().items:
+        if s.metadata.name == name:
+            storageClass = s
+
+    if storageClass == None:
+        raise Exception("Storage class '{}' does not exist".format(name))
+    # A generic expression to match storage from list https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes and usage examples.
+    #
+    # example references for storage class names:
+    # csi-filestore (https://github.com/kubernetes-sigs/gcp-filestore-csi-driver/blob/45661732bea386a0275851fa5c5364a0486e6467/examples/kubernetes/demo-sc.yaml )
+    # efs-sc (https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html , https://docs.aws.amazon.com/eks/latest/userguide/efs-csi.html )
+    # quobyte-csi ( https://github.com/quobyte/quobyte-csi/blob/master/example/StorageClass.yaml ) <-- Should update this one in the list from 'quobyte'.
+    # px-shared-sc (https://github.com/portworx/helm/blob/master/charts/portworx/templates/portworx-storageclasses.yaml  and many other places for 'portworx'.)
+    # csi-rbd-sc - (https://docs.ceph.com/en/latest/rbd/rbd-kubernetes/ ) for'ceph'.
+    # glusterfs - (https://docs.openshift.com/container-platform/3.11/install_config/persistent_storage/persistent_storage_glusterfs.html )
+    #
+    # example references for volume provisoner names:
+    # vsphere - (https://docs.openshift.com/container-platform/3.11/install_config/persistent_storage/persistent_storage_vsphere.html)
+    # portworx - (https://docs.portworx.com/portworx-install-with-kubernetes/storage-operations/kubernetes-storage-101/volumes/)
+    # nfs - (https://github.com/kubernetes-sigs/nfs-subdir-external-provisioner),
+    # quobyte - (https://www.quobyte.com/kubernetes-storage/connect-k8s-storage-classes-with-quobyte-policy-engine),
+    # gluster - (https://docs.openshift.com/container-platform/3.11/install_config/storage_examples/gluster_dynamic_example.html)
+    # ceph - (https://docs.ceph.com/en/latest/rbd/rbd-kubernetes/)
+    if (
+        re.match(
+            r".*(csi-filestore|efs-sc|quobyte-csi|px-shared-sc|csi-rbd-sc|azurefile|azurefile-csi|azurefile-csi-premium|azurefile-premium|nfs).*",
+            storageClass.metadata.name,
+        )
+    ) is None:
+        if (
+            storageClass.provisioner == None
+            or storageClass.provisioner == "kubernetes.io/no-provisioner"
+        ):
+            raise Exception(
+                "Storage class '{}' doesn't have a dynamic provisioner configured.".format(
+                    name
+                )
+            )
+        else:
+            # ToDo: update the list based on validation with dynamic provisioners
+            if (
+                re.match(
+                    r".*(nfs|glusterfs|azure-file|file.csi.azure|ceph|quobyte|postworx|vsphere).*",
+                    storageClass.provisioner,
+                )
+            ) is None:
+                logger.warning(
+                    "{1} creation will fail if the storage class specified for the '{0}' volume does not support the ReadWriteMany (RWX) access mode. Please check if the {0} storage class supports ReadWriteMany (RWX) access mode. Please see https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes".format(
+                        type, instanceType
+                    )
+                )

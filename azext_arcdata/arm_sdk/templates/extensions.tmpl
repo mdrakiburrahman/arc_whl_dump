@@ -1,0 +1,37 @@
+{
+  "identity": {
+    "type": "SystemAssigned"
+  },
+  "scope": "[parameters('parentResource')]",
+  "properties": {
+    "extensionType": "microsoft.arcdataservices",
+    "autoUpgradeMinorVersion": false,
+    "releaseTrain": "[parameters('releaseTrain')]",
+    "version": "[parameters('version')]",
+    "scope": {
+      "cluster": {
+        "releaseNamespace": "[parameters('namespace')]"
+      }
+    },
+    "configurationSettings": {
+      "Microsoft.CustomLocation.ServiceAccount": "sa-arc-bootstrapper",
+      "aad.customLocationObjectId": "51dfe1e8-70c6-4de5-a08e-e18aff23d815",
+      "imageCredentials.username": "[parameters('imageUsername')]",
+      "imageCredentials.registry": "[parameters('imageRegistry')]",
+      "systemDefaultValues.image": "[parameters('imageVersion')]",
+      "systemDefaultValues.imagePullPolicy": "[parameters('imagePullPolicy')]"
+    },
+    "configurationProtectedSettings": {
+      "imageCredentials.password": "[parameters('imagePassword')]"
+    }
+  },
+  "apiVersion": "[parameters('apiVersion')]",
+  "type": "Microsoft.KubernetesConfiguration/extensions",
+  "name": "[parameters('resourceName')]"
+  {%- if resource.dependsOn %}
+  ,
+  "dependsOn": [
+    "[parameters('{{resource.dependsOn}}')]"
+  ]
+  {% endif %}
+}

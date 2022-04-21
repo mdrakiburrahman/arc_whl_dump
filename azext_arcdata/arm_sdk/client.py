@@ -4,12 +4,11 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from ._util import dict_to_dot_notation
-from ._arm_client import ARMTemplateClient
+from ._util import dict_to_dot_notation, wait
+from ._arm_template import ARMTemplate
+from ._arm_client import arm_clients
 from .swagger_1_0_0 import AzureArcDataManagementClient
 from .swagger_1_0_0.models import (
-    DataControllerResource,
-    DataControllerProperties,
     SqlManagedInstance,
     ExtendedLocation,
     SqlManagedInstanceProperties,
@@ -25,14 +24,13 @@ from .swagger_1_0_0.models import (
 from azext_arcdata.core.env import Env
 from azext_arcdata.core.prompt import prompt_assert
 from knack.log import get_logger
-from typing import Callable
 
 import azure.core.exceptions as exceptions
 import os
 import json
-import time
 import requests
 import pydash as _
+import time
 
 __all__ = ["ArmClient"]
 
@@ -40,36 +38,31 @@ logger = get_logger(__name__)
 
 
 class ArmClient(object):
-    def __init__(self, azure_credential, subscription_id):
+    def __init__(self, azure_credential, subscription):
+        self._arm_clients = arm_clients(subscription, azure_credential)
         self._azure_credential = azure_credential
         self._bearer = azure_credential.get_token().token
-        self._subscription_id = subscription_id
+        self._subscription_id = subscription
         self._mgmt_client = AzureArcDataManagementClient(
-            credential=self._azure_credential,
             subscription_id=self._subscription_id,
-        )
-        self._arm_tpl_client = ARMTemplateClient(
-            self._bearer, self._subscription_id
+            credential=self._azure_credential,
         )
 
-    def create_3_in_1_dc(
+    # ======================================================================== #
+    # == DC ================================================================== #
+    # ======================================================================== #
+
+    def create_dc(
         self,
         resource_group,
         name,
-        location,
         custom_location,
         connectivity_mode,
-        cluster,
+        cluster_name,
         namespace,
-        path=None,
+        path,
         storage_class=None,
         infrastructure=None,
-        labels=None,
-        annotations=None,
-        service_annotations=None,
-        service_labels=None,
-        storage_labels=None,
-        storage_annotations=None,
         auto_upload_metrics=None,
         auto_upload_logs=None,
         polling=True,
@@ -82,235 +75,141 @@ class ArmClient(object):
                         f"A Data Controller {name} has already been created."
                     )
 
+            dc_client = self._arm_clients.dc
+
             config_file = os.path.join(path, "control.json")
             logger.debug("Configuration profile: %s", config_file)
 
             with open(config_file, encoding="utf-8") as input_file:
                 control = dict_to_dot_notation(json.load(input_file))
 
-            return self._arm_tpl_client.create_dc(
-                control,
-                Env.get_log_and_metrics_credentials(),
-                resource_group,
-                name,
-                location,
-                custom_location,
-                connectivity_mode,
-                cluster,
-                namespace,
-                storage_class=storage_class,
-                infrastructure=infrastructure,
-                auto_upload_metrics=auto_upload_metrics,
-                auto_upload_logs=auto_upload_logs,
-            )
+            # -- high order control.json, merge in input to control.json --
+            spec = control.spec
+            spec.settings.controller.displayName = name
+            spec.credentials.controllerAdmin = "controller-login-secret"
 
+            # -- docker --
+            docker = spec.docker
+            docker.registry = Env.get("DOCKER_REGISTRY") or docker.registry
+            docker.repository = (
+                Env.get("DOCKER_REPOSITORY") or docker.repository
+            )
+            docker.imageTag = Env.get("DOCKER_IMAGE_TAG") or docker.imageTag
+
+            # -- azure --
+            azure = spec.settings.azure
+            azure.connectionMode = connectivity_mode
+            azure.location = dc_client.get_connected_cluster_location(
+                cluster_name, resource_group
+            )
+            azure.resourceGroup = resource_group
+            azure.subscription = self._subscription_id
+
+            # -- log analytics --
+            log_analytics = {"workspace_id": "", "primary_key": ""}
+            if auto_upload_metrics is not None:
+                azure.autoUploadMetrics = auto_upload_metrics
+            if auto_upload_logs is not None:
+                azure.autoUploadLogs = auto_upload_logs
+                w_id = Env.get("WORKSPACE_ID")
+                w_key = Env.get("WORKSPACE_SHARED_KEY")
+                if not w_id:
+                    w_id = prompt_assert("Log Analytics workspace ID: ")
+                if not w_key:
+                    w_key = prompt_assert("Log Analytics primary key: ")
+
+                log_analytics["workspace_id"] = w_id
+                log_analytics["primary_key"] = w_key
+
+            # -- infrastructure --
+            spec.infrastructure = infrastructure or spec.infrastructure
+            spec.infrastructure = spec.infrastructure or "onpremises"
+
+            # -- storage --
+            storage = spec.storage
+            storage.data.className = storage_class or storage.data.className
+            storage.logs.className = storage_class or storage.logs.className
+
+            if not storage.data.className or not storage.logs.className:
+                storage_class = prompt_assert("Storage class: ")
+                storage.data.className = storage_class
+                storage.logs.className = storage_class
+
+            properties = {
+                "metrics_credentials": Env.get_log_and_metrics_credentials(),
+                "custom_location": custom_location,
+                "cluster_name": cluster_name,
+                "resource_group": resource_group,
+                "log_analytics": log_analytics,
+                "namespace": dc_client.resolve_namespace(
+                    namespace,
+                    custom_location,
+                    cluster_name,
+                    resource_group,
+                ),
+            }
+
+            # -- attempt to create cluster --
+            print("")
+            print("Deploying data controller")
+            print("")
+            print(
+                "NOTE: Data controller creation can take a significant "
+                "amount of time depending \non configuration, network "
+                "speed, and the number of nodes in the cluster."
+            )
+            print("")
+
+            # -- make dc create request via ARM --
+            tmpl = ARMTemplate(
+                dc_client, self._arm_clients.hydration
+            ).render_dc(control.to_dict, properties)
+
+            return dc_client.create(name, resource_group, tmpl, polling=polling)
         except exceptions.HttpResponseError as e:
             logger.debug(e)
             raise exceptions.HttpResponseError(e.message)
         except Exception as e:
             raise e
 
-    def create_dc(
+    def __create_depreciated_dc__(
         self,
         resource_group,
         name,
         location,
         custom_location,
         connectivity_mode,
-        path=None,
+        path,
         storage_class=None,
         infrastructure=None,
-        labels=None,
-        annotations=None,
-        service_annotations=None,
-        service_labels=None,
-        storage_labels=None,
-        storage_annotations=None,
         auto_upload_metrics=None,
         auto_upload_logs=None,
         polling=True,
     ):
+
+        """
+        This is the original dc create that expected the following to already
+        be created:
+        - extensions
+        - custom-location,
+        - roll assignments.
+
+        This will eventually be removed.
+        """
         try:
-            # -- check existing dc to void dc recreate --
-            all_dcs = self.list_dc(resource_group)
-            dc_name_list = []
-            for curr_dc in all_dcs:
-                dc_name_list.append(curr_dc.as_dict()["name"])
-            if name in dc_name_list:
-                # Cannot do dc_put for the same dc now since it will break
-                # the status key in dc_get response
-                #
-                raise Exception(
-                    "A Data Controller {name} has already been created.".format(
-                        name=name
-                    )
-                )
-
-            config_file = os.path.join(path, "control.json")
-            logger.debug("Configuration profile: %s", config_file)
-
-            with open(config_file, encoding="utf-8") as input_file:
-                k8s = json.load(input_file)
-                logger.debug(json.dumps(k8s, indent=4))
-
-            # -- docker property overrides --
-            if os.getenv("CONTROLLER_REGISTRY"):
-                k8s["spec"]["docker"]["registry"] = os.getenv(
-                    "CONTROLLER_REGISTRY"
-                )
-
-            if os.getenv("CONTROLLER_REPOSITORY"):
-                k8s["spec"]["docker"]["repository"] = os.getenv(
-                    "CONTROLLER_REPOSITORY"
-                )
-
-            if os.getenv("CONTROLLER_IMAGE_TAG"):
-                k8s["spec"]["docker"]["imageTag"] = os.getenv(
-                    "CONTROLLER_IMAGE_TAG"
-                )
-
-            if auto_upload_metrics is not None:
-                # Grant the contributor role logic after this line. TBD
-                # Grant the matrixs publisher role logic after this line. TBD
-                k8s["spec"]["settings"]["azure"][
-                    "autoUploadMetrics"
-                ] = auto_upload_metrics
-
-            if auto_upload_logs is not None:
-                # Read the log work space info after this line. TBD
-                k8s["spec"]["settings"]["azure"][
-                    "autoUploadLogs"
-                ] = auto_upload_logs
-
-            if infrastructure:
-                k8s["spec"]["infrastructure"] = infrastructure
-            elif not k8s["spec"]["infrastructure"]:
-                k8s["spec"]["infrastructure"] = "onpremises"
-            infrastructure = k8s["spec"]["infrastructure"]
-
-            if storage_class:
-                k8s["spec"]["storage"]["data"]["className"] = storage_class
-                k8s["spec"]["storage"]["logs"]["className"] = storage_class
-
-            if (
-                not k8s["spec"]["storage"]["data"]["className"]
-                or not k8s["spec"]["storage"]["logs"]["className"]
-            ):
-                storage_class = prompt_assert("Storage class: ")
-                k8s["spec"]["storage"]["data"]["className"] = storage_class
-                k8s["spec"]["storage"]["logs"]["className"] = storage_class
-
-            # Populate the arm request body
-            k8s["spec"]["settings"]["controller"]["displayName"] = name
-            k8s["spec"]["settings"]["azure"][
-                "connectionMode"
-            ] = connectivity_mode
-            k8s["spec"]["settings"]["azure"]["location"] = location
-            k8s["spec"]["settings"]["azure"]["resourceGroup"] = resource_group
-            k8s["spec"]["settings"]["azure"][
-                "subscription"
-            ] = self._subscription_id
-            k8s["spec"]["credentials"][
-                "controllerAdmin"
-            ] = "controller-login-secret"
-
-            # -- extended-location --
-            extended_location = ExtendedLocation(
-                name=(
-                    "/subscriptions/"
-                    + self._subscription_id
-                    + "/resourcegroups/"
-                    + resource_group
-                    + "/providers/microsoft.extendedlocation/customlocations/"
-                    + custom_location
-                ),
-                type="CustomLocation",
-            )
-
-            # -- properties --
-            cred = Env.get_log_and_metrics_credentials()
-            metrics_dashboard_credential = BasicLoginInformation(
-                username=cred.metrics_username, password=cred.metrics_password
-            )
-            logs_dashboard_credential = BasicLoginInformation(
-                username=cred.log_username, password=cred.log_password
-            )
-            properties = DataControllerProperties(
+            return self._arm_clients.dc.__create_depreciated_dc__(
+                resource_group,
+                name,
+                location,
+                custom_location,
+                connectivity_mode,
+                path,
+                storage_class=storage_class,
                 infrastructure=infrastructure,
-                k8_s_raw=k8s,
-                metrics_dashboard_credential=metrics_dashboard_credential,
-                logs_dashboard_credential=logs_dashboard_credential,
+                auto_upload_metrics=auto_upload_metrics,
+                auto_upload_logs=auto_upload_logs,
+                polling=polling,
             )
-            data_controller_resource = DataControllerResource(
-                location=location,
-                extended_location=extended_location,
-                properties=properties,
-            )
-
-            # -- log --
-            d = data_controller_resource.as_dict().copy()
-            d["properties"]["metrics_dashboard_credential"]["password"] = "*"
-            d["properties"]["logs_dashboard_credential"]["password"] = "*"
-
-            logger.debug("<DataControllerResource>")
-            logger.debug(json.dumps(d, indent=4))
-
-            result = (
-                self._mgmt_client.data_controllers.begin_put_data_controller(
-                    resource_group_name=resource_group,
-                    data_controller_name=name,
-                    data_controller_resource=data_controller_resource,
-                    polling=polling,
-                )
-            )
-
-            if polling:
-                # Setting a total wait time of 1800 sec with a step of 5 sec
-                self._wait(
-                    self.dc_deployment_completed,
-                    resource_group,
-                    name,
-                )
-                if (
-                    self.dc_deployment_completed(resource_group, name)
-                    != "Ready"
-                ):
-                    raise Exception(
-                        "DC deployment failed. Please check your dc status in portal \
-                        or reset this create process."
-                    )
-                return self.get_dc(resource_group, name)
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
-
-    def dc_deployment_completed(self, resource_group, name):
-        get_result = self.get_dc(resource_group, name)
-        if (
-            get_result
-            and get_result.properties
-            and get_result.properties.k8_s_raw
-            and "status" in get_result.properties.k8_s_raw
-            and "state" in get_result.properties.k8_s_raw["status"]
-        ):
-            return get_result.properties.k8_s_raw["status"]["state"]
-        else:
-            # Status is unknown, so we set it to "Wait" for now.
-            return "Wait"
-
-    def delete_dc(self, resource_group, name, polling=True):
-        try:
-            result = (
-                self._mgmt_client.data_controllers.begin_delete_data_controller(
-                    resource_group_name=resource_group,
-                    data_controller_name=name,
-                    polling=polling,
-                )
-            )
-
-            return result
         except exceptions.HttpResponseError as e:
             logger.debug(e)
             raise exceptions.HttpResponseError(e.message)
@@ -318,20 +217,20 @@ class ArmClient(object):
             raise e
 
     def get_dc(self, resource_group, name):
-        try:
-            result = self._mgmt_client.data_controllers.get_data_controller(
-                resource_group_name=resource_group,
-                data_controller_name=name,
-            )
+        return self._arm_clients.dc.get(name, resource_group)
 
-            logger.debug(json.dumps(result.as_dict(), indent=4))
+    def list_dc(self, resource_group):
+        return self._arm_clients.dc.list(resource_group)
 
-            return result
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
+    def update_dc(self, resource_group, name, properties: dict):
+        return self._arm_clients.dc.patch(
+            name, resource_group, properties=properties
+        )
+
+    def delete_dc(self, resource_group, name, polling=True):
+        return self._arm_clients.dc.delete(
+            name, resource_group, polling=polling
+        )
 
     def upgrade_dc(
         self,
@@ -341,113 +240,28 @@ class ArmClient(object):
         dry_run=False,
         polling=True,
     ):
-        try:
-            dc = self.get_dc(resource_group, name)
+        return self._arm_clients.dc.upgrade(
+            name,
+            resource_group,
+            target,
+            dry_run=dry_run,
+            polling=polling,
+        )
 
-            # We cannot initiate a new PUT request if a previous request is still
-            # in the Accepted state.
-            #
-            if dc.properties.provisioning_state == "Accepted":
-                raise Exception(
-                    "An existing operation is in progress. Please check your DC's status in the Azure Portal."
-                )
-
-            # if dry_run is specified, we will simply print and return.
-            if dry_run:
-                print("****Dry Run****")
-                print(
-                    "Arcdata Control Plane would be upgraded to: {0}".format(
-                        target
-                    )
-                )
-                return
-
-            dc.properties.k8_s_raw["spec"]["docker"]["imageTag"] = target
-
-            data_controller_resource = DataControllerResource(
-                location=dc.location,
-                extended_location=dc.extended_location,
-                properties=dc.properties,
-            )
-
-            result = (
-                self._mgmt_client.data_controllers.begin_put_data_controller(
-                    resource_group_name=resource_group,
-                    data_controller_name=name,
-                    data_controller_resource=data_controller_resource,
-                    polling=polling,
-                )
-            )
-
-            # Wait for the operation to be accepted
-            #
-            for _ in range(0, 60, 5):
-                dc = self.get_dc(resource_group, name)
-                if dc.properties.provisioning_state != "Accepted":
-                    break
-                else:
-                    time.sleep(5)
-
-            if dc.properties.provisioning_state == "Failed":
-                raise Exception(
-                    "DC upgrade failed. Please check your DC's status in the Azure Portal for more information"
-                )
-
-            if polling:
-                # Setting a total wait time of 600 sec with a step of 5 sec
-                for _ in range(0, 600, 5):
-                    if self.dc_upgrade_completed(resource_group, name):
-                        break
-                    else:
-                        time.sleep(5)
-
-                if not self.dc_upgrade_completed(resource_group, name):
-                    raise Exception(
-                        "DC upgrade failed. Please check your DC's status in the Azure Portal for more information."
-                    )
-            else:
-                return result
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
-
-    def dc_upgrade_completed(self, resource_group, name):
-        get_result = self.get_dc(resource_group, name).properties.k8_s_raw
-
-        return _.get(get_result, ".status.state", False) == "Ready"
-
-    def update_dc(self, rg_name, dc_name, properties: dict):
-        try:
-            # get_dc  then mixin properties
-            result = self._mgmt_client.data_controllers.patch_data_controller(
-                resource_group_name=rg_name,
-                data_controller_name=dc_name,
-                data_controller_resource=properties,
-            )
-
-            return result
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
-
-    def list_dc(self, rg_name):
-        try:
-            result = self._mgmt_client.data_controllers.list_in_group(rg_name)
-
-            return result
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
+    # ======================================================================== #
+    # == SQL MI ============================================================== #
+    # ======================================================================== #
 
     def get_mi_resource_url(self, resource_group, resource_name):
-        return "https://management.azure.com/subscriptions/{}/resourceGroups/{}/providers/Microsoft.AzureArcData/sqlManagedInstances/{}?api-version={}".format(
-            self._subscription_id, resource_group, resource_name, API_VERSION
+        return (
+            "https://management.azure.com/subscriptions/{}/resourceGroups"
+            "/{}/providers/Microsoft.AzureArcData/sqlManagedInstances/{}"
+            "?api-version={}".format(
+                self._subscription_id,
+                resource_group,
+                resource_name,
+                "2021-11-01",
+            )
         )
 
     def create_sqlmi(
@@ -737,7 +551,7 @@ class ArmClient(object):
 
             if polling:
                 # Setting a total wait time of 600 sec with a step of 5 sec
-                self._wait(
+                wait(
                     self.sqlmi_deployment_completed,
                     resource_group,
                     name,
@@ -975,7 +789,8 @@ class ArmClient(object):
                 or response.properties.provisioning_state == "Deleting"
             ):
                 raise Exception(
-                    "An existing operation is in progress. Please check your sqlmi's status in the Azure Portal."
+                    "An existing operation is in progress. Please check your "
+                    "sqlmi's status in the Azure Portal."
                 )
             if cores_limit and cores_limit != resources.limits["cpu"]:
                 resources.limits["cpu"] = cores_limit
@@ -1055,7 +870,7 @@ class ArmClient(object):
             )
 
             if not no_wait:
-                self._wait(
+                wait(
                     self.sqlmi_deployment_completed,
                     resource_group,
                     name,
@@ -1075,45 +890,12 @@ class ArmClient(object):
         except Exception as e:
             raise e
 
-    def _wait(self, func: Callable, *func_args, retry_tol=1800, retry_delay=5):
-        try:
-            for _ in range(0, retry_tol, retry_delay):
-                status = func(*func_args)
-                if status == "Ready":
-                    break
-                elif "Error" in status:
-                    raise Exception(
-                        "An error happened while waiting. The deployment state is: \n{0}".format(
-                            status
-                        )
-                    )
-                else:
-                    time.sleep(retry_delay)
-        except Exception as e:
-            logger.debug(e)
-            raise e
-
     def list_sqlmi(self, rg_name):
         try:
             result = (
                 self._mgmt_client.sql_managed_instances.list_by_resource_group(
                     rg_name
                 )
-            )
-
-            return result
-        except exceptions.HttpResponseError as e:
-            logger.debug(e)
-            raise exceptions.HttpResponseError(e.message)
-        except Exception as e:
-            raise e
-
-    def patch_dc(self, rg_name, dc_name, properties: dict):
-        try:
-            result = self._mgmt_client.data_controllers.patch_data_controller(
-                resource_group_name=rg_name,
-                data_controller_name=dc_name,
-                data_controller_resource=properties,
             )
 
             return result

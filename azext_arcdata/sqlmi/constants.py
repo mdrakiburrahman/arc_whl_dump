@@ -34,14 +34,13 @@ SQLMI_COMMON_API_KWARGS = {
     "plural": RESOURCE_KIND_PLURAL,
 }
 
-DAG_RESOURCE_KIND = "Dag"
+FOG_RESOURCE_KIND = "FailoverGroup"
 
-DAG_RESOURCE_KIND_PLURAL = "dags"
+FOG_RESOURCE_KIND_PLURAL = "failovergroups"
 
-DAG_API_GROUP = "sql.arcdata.microsoft.com"
+FOG_API_GROUP = "sql.arcdata.microsoft.com"
 
-DAG_API_VERSION = ARC_API_V1BETA2
-
+FOG_API_VERSION = ARC_API_V1BETA2
 
 # ------------------------------------------------------------------------------
 # SQL server related constants
@@ -186,9 +185,9 @@ SQLMI_RESTORE_TASK_SPEC = os.path.join(TEMPLATE_DIR, "sqlmi_restore_task.json")
 File location for sqlmi restore task SPEC.
 """
 
-DAG_SPEC = os.path.join(TEMPLATE_DIR, "dag_spec.json")
+FOG_SPEC = os.path.join(TEMPLATE_DIR, "fog_spec.json")
 """
-File location for dag SPEC.
+File location for fog SPEC.
 """
 
 SQLMI_DIRECT_MODE_SPEC_MERGE = os.path.join(

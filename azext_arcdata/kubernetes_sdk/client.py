@@ -636,6 +636,12 @@ class KubernetesClient(object):
 
     @staticmethod
     @catch_admission_responses
+    @retry_method(
+        retry_count=CONNECTION_RETRY_ATTEMPTS,
+        retry_delay=RETRY_INTERVAL,
+        retry_method_description="Patch custom resource",
+        retry_on_exceptions=(NewConnectionError, MaxRetryError),
+    )
     def patch_namespaced_custom_object(cr: CustomResource, plural: str):
         """
         Patches a kubernetes custom resource object with the given crd and

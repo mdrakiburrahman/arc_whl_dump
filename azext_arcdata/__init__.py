@@ -28,11 +28,15 @@ class ArcDataCommandsLoader(AzCommandsLoader):
         from azext_arcdata.sqlmidb.commands import (
             load_commands as sqlmidb_commands,
         )
+        from azext_arcdata.ad_connector.commands import (
+            load_commands as ad_connector_commands,
+        )
 
         postgres_commands(self, args)
         sqlmi_commands(self, args)
         sqlmidb_commands(self, args)
         dc_commands(self, args)
+        # disable: ad_connector_commands(self, args)
 
         return self.command_table
 
@@ -49,11 +53,15 @@ class ArcDataCommandsLoader(AzCommandsLoader):
         from azext_arcdata.dc.arguments import (
             load_arguments as dc_arguments,
         )
+        from azext_arcdata.ad_connector.arguments import (
+            load_arguments as ad_arguments,
+        )
 
         postgres_arguments(self, command)
         sqlmi_arguments(self, command)
         sqlmidb_arguments(self, command)
         dc_arguments(self, command)
+        # disable ad_arguments(self, command)
 
 
 COMMAND_LOADER_CLS = ArcDataCommandsLoader

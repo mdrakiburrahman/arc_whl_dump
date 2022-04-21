@@ -13,7 +13,7 @@ from azext_arcdata.core.class_utils import (
     validator,
     enforcetype,
 )
-from typing import Union, TYPE_CHECKING, Type
+from typing import List, Union, TYPE_CHECKING, Type
 from abc import abstractmethod
 from knack.cli import CLIError
 
@@ -111,6 +111,8 @@ class CustomResource(SerializationUtils):
             if "annotations" in kwargs:
                 self.annotations = kwargs["annotations"]
 
+            self._ownerReferences = []
+
         @property
         def uid(self) -> str:
             """
@@ -194,12 +196,71 @@ class CustomResource(SerializationUtils):
         def generation(self, gen: int):
             self._generation = gen
 
+        class OwnerReference(SerializationUtils):
+            def __init__(self, apiVersion: str = None, kind : str = None, name : str = None, uid : str = None):
+                self._apiVersion = apiVersion
+                self._kind = kind
+                self._name = name
+                self._uid = uid
+            @property
+            def apiVersion(self) -> str:
+                return self._apiVersion
+            @apiVersion.setter
+            def apiVersion(self, av: str):
+                self._apiVersion = av
+            @property
+            def kind(self) -> str:
+                return self._kind
+            @kind.setter
+            def kind(self, k:str):
+                self._kind = k
+            @property
+            def name(self) -> str:
+                return self._name 
+            @name.setter
+            def name(self, n:str):
+                self._name = n
+            @property
+            def uid(self) -> str:
+                return self._uid
+            @uid.setter
+            def uid(self, u:str):
+                self._uid = u
+
+            def _to_dict(self):
+                return {
+                    "apiVersion": getattr(self, "apiVersion", None),
+                    "kind": getattr(self, "kind", None),
+                    "name": getattr(self, "name", None),
+                    "uid": getattr(self, "uid", None),
+                }
+            def _hydrate(self, d: dict):
+                if "apiVersion" in d:
+                    self.apiVersion = d["apiVersion"]
+                if "kind" in d:
+                    self.kind = d["kind"]
+                if "name" in d:
+                    self.name = d["name"]
+                if "uid" in d:
+                    self.uid = d["uid"]
+
+        @property
+        def ownerReferences(self) -> list :
+            return self._ownerReferences
+        @ownerReferences.setter
+        def ownerReferences(self, ownerR: list):
+            self._ownerReferences = ownerR
+
         def _to_dict(self):
             """
             @override
             """
             v = getattr(self, "resourceVersion", None)
             v_str = str(v) if v else None
+
+            v_ownerReferences = []
+            for s in getattr(self, "ownerReferences", []):
+                v_ownerReferences.append(s._to_dict())
 
             return {
                 "name": getattr(self, "name", None),
@@ -209,6 +270,7 @@ class CustomResource(SerializationUtils):
                 "uid": getattr(self, "uid", None),
                 "labels": getattr(self, "labels", None),
                 "annotations": getattr(self, "annotations", None),
+                "ownerReferences" : v_ownerReferences,
             }
 
         def _hydrate(self, d: dict):
@@ -229,6 +291,12 @@ class CustomResource(SerializationUtils):
                 self.labels = d["labels"]
             if "annotations" in d:
                 self.annotations = d["annotations"]
+            if "ownerReferences" in d and d["ownerReferences"] is not None:
+                self._ownerReferences = [];
+                for s in d["ownerReferences"]:
+                    curr = self.OwnerReference()
+                    curr._hydrate(s)
+                    self._ownerReferences.append(curr)
 
     @property
     def metadata(self) -> Metadata:

@@ -6,16 +6,10 @@
 
 """Command definitions for `data control`."""
 import uuid
-from azext_arcdata.dc.azure.constants import (
-    API_VERSION,
-    INSTANCE_TYPE_DATA_CONTROLLER,
-    MONITORING_METRICS_PUBLISHER_ROLE_ID,
-    RESOURCE_PROVIDER_NAMESPACE,
-    ROLE_DESCRIPTIONS,
-)
+
 from azure.cli.core.azclierror import ValidationError
 from azext_arcdata.dc.constants import LAST_USAGE_UPLOAD_FLAG
-from azext_arcdata.dc.export_util import (
+from azext_arcdata.arm_sdk.dc.export_util import (
     ExportType,
     logs_upload,
     metrics_upload,
@@ -55,31 +49,33 @@ logger = get_logger(__name__)
 
 def dc_create(
     client,
-    name,
     connectivity_mode,
+    name,
+    # location,
     resource_group,
-    location,
-    profile_name=None,
-    path=None,
-    storage_class=None,
     infrastructure=None,
-    labels=None,
+    no_wait=False,
+    path=None,
+    profile_name=None,
+    storage_class=None,
+    # -- direct --
+    auto_upload_logs=None,
+    auto_upload_metrics=None,
+    custom_location=None,
+    cluster_name=None,
+    # -- indirect --
     annotations=None,
+    namespace=None,
+    labels=None,
+    location=None,
+    logs_ui_private_key_file=None,
+    logs_ui_public_key_file=None,
+    metrics_ui_private_key_file=None,
+    metrics_ui_public_key_file=None,
     service_annotations=None,
     service_labels=None,
-    storage_labels=None,
     storage_annotations=None,
-    no_wait=False,
-    # -- direct --
-    custom_location=None,
-    auto_upload_metrics=None,
-    auto_upload_logs=None,
-    # -- indirect --
-    namespace=None,
-    logs_ui_public_key_file=None,
-    logs_ui_private_key_file=None,
-    metrics_ui_public_key_file=None,
-    metrics_ui_private_key_file=None,
+    storage_labels=None,
     use_k8s=None,
 ):
     try:
@@ -107,8 +103,8 @@ def dc_create(
         # -- Apply Configuration Directory --
         cvo = client.args_to_command_value_object(
             {
-                "name": name,
                 "connectivity_mode": connectivity_mode,
+                "name": name,
                 "resource_group": resource_group,
                 "location": location,
                 "profile_name": profile_name,
@@ -129,85 +125,46 @@ def dc_create(
                 "custom_location": custom_location,
                 "auto_upload_metrics": auto_upload_metrics,
                 "auto_upload_logs": auto_upload_logs,
+                "cluster_name": cluster_name,
                 "namespace": namespace,
                 "no_wait": no_wait,
             }
         )
 
-        return client.services.dc.create(cvo)
-
+        dc = client.services.dc.create(cvo)
+        if no_wait:
+            stdout(
+                f"The data controller '{name}' is being created in the "
+                f"background, to check status run:\n\naz arcdata dc status "
+                f"show -n {name} -g {resource_group} --query properties."
+                f"k8SRaw.status"
+            )
+        return dc
     except (NoTTYException, ValueError, Exception) as e:
         raise CLIError(e)
 
 
 def dc_update(
     client,
-    name,
-    resource_group_name,
+    name=None,
+    resource_group_name=None,
     auto_upload_logs=None,
     auto_upload_metrics=None,
+    # k8s only
+    use_k8s=None,
+    namespace=None,
+    desired_version=None,
+    maintenance_start=None,
+    maintenance_duration=None,
+    maintenance_recurrence=None,
+    maintenance_time_zone=None,
+    maintenance_enabled=None,
 ):
     """
     Update data controller properties.
     """
-
-    # validate as much as possible before processing anything
-    """
-    _validate_dc_update_params(
-        name,
-        resource_group_name,
-        auto_upload_logs,
-        auto_upload_metrics,
-    )
-    """
-
-    # get dc resource from Azure
-    dc_resource = client.azure_resource_client.get_generic_azure_resource(
-        subscription=client.subscription,
-        resource_group_name=resource_group_name,
-        resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
-        resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
-        resource_name=name,
-        api_version=API_VERSION,
-    )
-
-    is_dc_directly_connected = _is_dc_directly_connected(dc_resource)
-
-    if auto_upload_logs is not None:
-        if not is_dc_directly_connected:
-            raise ValidationError(
-                "Automatic upload of logs is only supported for data "
-                "controllers in direct connectivity mode"
-            )
-
-        _update_auto_upload_logs(dc_resource, auto_upload_logs, client)
-
-    if auto_upload_metrics is not None:
-        if not is_dc_directly_connected:
-            raise ValidationError(
-                "Automatic upload of metrics is only supported for data "
-                "controllers in direct connectivity mode"
-            )
-
-        _update_auto_upload_metrics(
-            dc_resource, resource_group_name, auto_upload_metrics, client
-        )
-
-    # update dc Azure resource
-    response = (
-        client.azure_resource_client.create_or_update_generic_azure_resource(
-            subscription=client.subscription,
-            resource_group_name=resource_group_name,
-            resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
-            resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
-            resource_name=name,
-            api_version=API_VERSION,
-            parameters=dc_resource,
-            wait_for_response=False,
-        )
-    )
-
-    return response
+    cvo = client.args_to_command_value_object()
+    return client.services.dc.update(cvo)
 
 
 def dc_upgrade(
@@ -300,7 +257,6 @@ def dc_status_show(
     """
     Return the status of the data controller custom resource.
     """
-
     try:
         cvo = client.args_to_command_value_object(
             {
@@ -803,127 +759,4 @@ def dc_upload(client, path):
             data_timestamp=timestamp_from_export_file.isoformat(
                 sep=" ", timespec="milliseconds"
             ),
-        )
-
-
-def _is_dc_directly_connected(dc):
-    """
-    Return True if dc is directly connected mode. False otherwise.
-    (this is determined by checking at the extended_location, "ConnectionMode"
-    property is ignored, this is the same logic performed in the RP)
-    """
-
-    if dc.extended_location is None:
-        return False
-
-    if dc.extended_location.type.lower() != "customlocation":
-        return False
-
-    return True
-
-
-def _update_auto_upload_logs(dc, auto_upload_logs, client):
-
-    """
-    Update auto upload logs properties. This includes asking for the
-    log analytics workspace id/key if needed.
-    :param dc: The data controller. The updated properties are changed on this
-               object.
-    :param auto_upload_logs: "true"/"false" (string, not boolean) indicating
-    whether or not to enable auto upload.
-    """
-
-    dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
-        "autoUploadLogs"
-    ] = auto_upload_logs
-
-    if auto_upload_logs == "false":
-        dc.properties["logAnalyticsWorkspaceConfig"] = None
-        return
-
-    if (
-        "logAnalyticsWorkspaceConfig" not in dc.properties
-        or dc.properties["logAnalyticsWorkspaceConfig"] is None
-    ):
-        dc.properties["logAnalyticsWorkspaceConfig"] = dict()
-
-    (
-        workspace_id,
-        workspace_shared_key,
-    ) = _get_log_workspace_credentials_from_env(client)
-
-    dc.properties["logAnalyticsWorkspaceConfig"]["workspaceId"] = workspace_id
-    dc.properties["logAnalyticsWorkspaceConfig"][
-        "primaryKey"
-    ] = workspace_shared_key
-
-
-def _update_auto_upload_metrics(
-    dc, resource_group_name, auto_upload_metrics, client
-):
-    """
-    Update auto upload metrics property. This includes creating the necessary
-    role assignments if needed.
-    :param dc: The data controller. The updated property is changed on this
-               object.
-    :param resource_group_name: The data controller's resource group name.
-    :param auto_upload_metrics: "true"/"false" (string, not boolean) indicating
-    whether or not to enable auto upload.
-    """
-
-    if auto_upload_metrics == "true":
-        assign_metrics_role_if_missing(
-            dc.extended_location.name,
-            resource_group_name,
-            client.azure_resource_client,
-        )
-
-    dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
-        "autoUploadMetrics"
-    ] = auto_upload_metrics
-
-
-def assign_metrics_role_if_missing(
-    custom_location_id, resource_group_name, azure_resource_client
-):
-    """
-    Assign metrics publisher role to the extension identity.
-    :param custom_location_id: Assign the role to the bootstrapper extension
-           on this custom location.
-    :param resource_group_name: The resource group name.
-    :param azure_resource_client: Azure resource client used to assign the role.
-    """
-    metrics_role_description = ROLE_DESCRIPTIONS[
-        MONITORING_METRICS_PUBLISHER_ROLE_ID
-    ]
-
-    extension_identity_principal_id = (
-        azure_resource_client.get_extension_identity(custom_location_id)
-    )
-
-    logger.debug(
-        f"Bootstrapper extension identity (principal id): "
-        f"'{extension_identity_principal_id}'"
-    )
-
-    if azure_resource_client.has_role_assignment(
-        extension_identity_principal_id,
-        resource_group_name,
-        MONITORING_METRICS_PUBLISHER_ROLE_ID,
-        metrics_role_description,
-    ):
-        logger.debug(
-            "Bootstrapper extension identity already has metrics publisher role."
-        )
-    else:
-        logger.debug(
-            f"Assigning '{metrics_role_description}' role to bootstrapper "
-            f"extension identity..."
-        )
-
-        azure_resource_client.create_role_assignment(
-            extension_identity_principal_id,
-            resource_group_name,
-            MONITORING_METRICS_PUBLISHER_ROLE_ID,
-            metrics_role_description,
         )

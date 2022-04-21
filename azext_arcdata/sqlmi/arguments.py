@@ -5,6 +5,7 @@
 # ------------------------------------------------------------------------------
 
 from azext_arcdata.core.constants import (
+    CLI_ARG_GROUP_AD_TEXT,
     USE_K8S_TEXT,
     CLI_ARG_GROUP_DIRECT_TEXT,
     CLI_ARG_GROUP_INDIRECT_TEXT,
@@ -305,6 +306,57 @@ def load_arguments(self, _):
             help="The Azure resource group in which the sqlmi "
             "resource should be added.",
         )
+        # -- Active Directory --
+        """
+        c.argument(
+            "ad_connector_name",
+            options_list=["--ad-connector-name"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The name of the Active Directory Connector. This parameter indicates an intent to deploy with AD support.",
+        )
+        c.argument(
+            "ad_connector_namespace",
+            options_list=["--ad-connector-namespace"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The Kubernetes namespace where the Active Directory Connector is deployed.",
+        )
+        c.argument(
+            "ad_account_name",
+            options_list=["--ad-account-name"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The Active Directory account name for this Arc-enabled SQL Managed Instance. This account needs to be created prior to the deployment of this instance.",
+        )
+        c.argument(
+            "keytab_secret",
+            options_list=["--keytab-secret"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The name of the Kubernetes secret that contains the keytab file for this Arc-enabled SQL Managed Instance.",
+        )
+        c.argument(
+            "primary_dns_name",
+            options_list=["--primary-dns-name"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The primary service DNS name exposed to the end-users to connect to this Arc-enabled SQL Managed Instance (e.g. sqlinstancename.contoso.com).",
+        )
+        c.argument(
+            "primary_port_number",
+            options_list=["--primary-port-number"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The port number on which the primary DNS service is exposed to the end-users (e.g. 31433).",
+        )
+        c.argument(
+            "secondary_dns_name",
+            options_list=["--secondary-dns-name"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The secondary service DNS name exposed to the end-users to connect to this Arc-enabled SQL Managed Instance (e.g. sqlinstancename2.contoso.com).",
+        )
+        c.argument(
+            "secondary_port_number",
+            options_list=["--secondary-port-number"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The port number on which the secondary DNS service is exposed to the end-users (e.g. 31444).",
+        )
+        """
 
     with ArgumentsContext(self, "sql mi-arc upgrade") as c:
         c.argument(
@@ -556,6 +608,15 @@ def load_arguments(self, _):
             help="The Azure resource group in which the sqlmi "
             "resource should be updated.",
         )
+        # -- Active Directory --
+        """
+        c.argument(
+            "keytab_secret",
+            options_list=["--keytab-secret"],
+            arg_group=CLI_ARG_GROUP_AD_TEXT,
+            help="The name of the Kubernetes secret that contains the keytab file for this Arc-enabled SQL Managed Instance.",
+        )
+        """
 
     with ArgumentsContext(self, "sql mi-arc edit") as c:
         c.argument(
@@ -938,48 +999,48 @@ def load_arguments(self, _):
             "see: https://jsonpath.com/.",
         )
 
-    with ArgumentsContext(self, "sql mi-arc dag create") as c:
+    with ArgumentsContext(self, "sql instance-failover-group-arc create") as c:
         c.argument(
             "name",
             options_list=["--name", "-n"],
             help="The name of the distributed availability group resource.",
         )
         c.argument(
-            "dag_name",
-            options_list=["--dag-name", "-d"],
-            help="The name of the distributed availability group for this SQL "
-            "managed instance. Both local and remote have to use the same "
-            "name.",
+            "shared_name",
+            options_list=["--shared-name"],
+            help="The shared name of the failover group for this SQL "
+            "managed instance. Both Managed Instance and its partner have to use the same "
+            "shared name.",
         )
         c.argument(
-            "local_instance_name",
-            options_list=["--local-instance-name"],
+            "mi",
+            options_list=["--mi"],
             help="The name of the local SQL managed instance.",
         )
         c.argument(
             "role",
             options_list=["--role"],
-            help="The requested role of the distributed availability group. "
+            help="The requested role of the failover group. "
             "{}".format(DAG_ROLES_ALLOWED_VALUES_MSG_CREATE),
         )
         c.argument(
-            "remote_instance_name",
-            options_list=["--remote-instance-name"],
-            help="The name of the remote SQL managed instance or remote SQL "
-            "availability group",
+            "partner_mi",
+            options_list=["--partner-mi"],
+            help="The name of the partner SQL managed instance or remote SQL "
+            "instance",
         )
         c.argument(
-            "remote_mirroring_url",
-            options_list=["--remote-mirroring-url", "-u"],
-            help="The mirroring endpoint URL of the remote SQL managed "
-            "instance or remote SQL availability group",
+            "partner_mirroring_url",
+            options_list=["--partner-mirroring-url", "-u"],
+            help="The mirroring endpoint URL of the partner SQL managed "
+            "instance or availability group on remote SQL instance.",
         )
         c.argument(
-            "remote_mirroring_cert_file",
-            options_list=["--remote-mirroring-cert-file", "-f"],
+            "partner_mirroring_cert_file",
+            options_list=["--partner-mirroring-cert-file", "-f"],
             help="The filename of mirroring endpoint public certificate for "
-            "the remote SQL managed instance or remote SQL availability "
-            "group. Only PEM format is supported.",
+            "the partner SQL managed instance or availability group on remote SQL "
+            "instance. Only PEM format is supported.",
         )
         # -- indirect --
         c.argument(
@@ -998,16 +1059,16 @@ def load_arguments(self, _):
             help="Create SQL managed instance using local Kubernetes APIs.",
         )
 
-    with ArgumentsContext(self, "sql mi-arc dag update") as c:
+    with ArgumentsContext(self, "sql instance-failover-group-arc update") as c:
         c.argument(
             "name",
             options_list=["--name", "-n"],
-            help="The name of the distributed availability group resource.",
+            help="The name of the failover group resource.",
         )
         c.argument(
             "role",
             options_list=["--role"],
-            help="The requested role change of distributed availability group "
+            help="The requested role change of failover group "
             "resource. "
             "{}".format(DAG_ROLES_ALLOWED_VALUES_MSG_UPDATE),
         )
@@ -1025,11 +1086,11 @@ def load_arguments(self, _):
             help=USE_K8S_TEXT,
         )
 
-    with ArgumentsContext(self, "sql mi-arc dag delete") as c:
+    with ArgumentsContext(self, "sql instance-failover-group-arc delete") as c:
         c.argument(
             "name",
             options_list=["--name"],
-            help="The name of the distributed availability group resource.",
+            help="The name of the failover group resource.",
         )
         # -- indirect --
         c.argument(
@@ -1048,11 +1109,11 @@ def load_arguments(self, _):
             help="Create SQL managed instance using local Kubernetes APIs.",
         )
 
-    with ArgumentsContext(self, "sql mi-arc dag show") as c:
+    with ArgumentsContext(self, "sql instance-failover-group-arc show") as c:
         c.argument(
             "name",
             options_list=["--name"],
-            help="The name of the distributed availability group resource.",
+            help="The name of the failover group resource.",
         )
         # -- indirect --
         c.argument(

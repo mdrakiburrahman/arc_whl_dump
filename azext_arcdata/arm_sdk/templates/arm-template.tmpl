@@ -5,6 +5,21 @@
         "detailLevel": "none"
       },
       "parameters": {
+        "apiVersion": {
+          "value": "2021-09-01"
+        },
+        "apiVersion_1": {
+          "value": "2018-09-01-preview"
+        },
+        "apiVersion_2": {
+          "value": "2018-09-01-preview"
+        },
+        "apiVersion_3": {
+          "value": "2021-08-15"
+        },
+        "apiVersion_4": {
+          "value": "2021-11-01"
+        },
         "imagePullPolicy": {
           "value": "{{control.spec.docker.imagePullPolicy}}"
         },
@@ -18,25 +33,22 @@
           "value": "{{namespace}}"
         },
         "releaseTrain": {
-          "value": "{{RELEASE_TRAIN_TAG}}"
+          "value": "{{extensions.ARC_DATASERVICES_EXTENSION_RELEASE_TRAIN}}"
         },
         "version": {
-          "value": "{{ARC_DATASERVICES_EXTENSION_VERSION_TAG}}"
+          "value": "{{extensions.ARC_DATASERVICES_EXTENSION_VERSION}}"
         },
         "imageRegistry": {
           "value": "{{control.spec.docker.registry}}"
         },
         "imageVersion": {
-          "value": "{{control.spec.docker.registry}}/arcdata/arc-bootstrapper:{{control.spec.docker.imageTag}}"
+          "value": "{{control.spec.docker.registry}}/{{control.spec.docker.repository}}/arc-bootstrapper:{{control.spec.docker.imageTag}}"
         },
         "imageUsername": {
           "value": "{{docker_username}}"
         },
         "imagePassword": {
           "value": "{{docker_password}}"
-        },
-        "apiVersion": {
-          "value": "{{ARC_DATA_SERVICES_EXTENSION_API_VERION}}"
         },
         "roleNameGuid_1": {
           "value": "{{resource_name_1}}"
@@ -47,9 +59,6 @@
         "resourceName_1": {
           "value": "{{resource_name_1}}"
         },
-        "apiVersion_1": {
-          "value": "{{ROLE_ASSIGNMENT_API_VERSION}}"
-        },
         "roleNameGuid_2": {
           "value": "{{resource_name_2}}"
         },
@@ -59,9 +68,7 @@
         "resourceName_2": {
           "value": "{{resource_name_2}}"
         },
-        "apiVersion_2": {
-          "value": "{{ROLE_ASSIGNMENT_API_VERSION}}"
-        },
+
         "resourceName_3": {
           "value": "{{custom_location}}"
         },
@@ -81,9 +88,6 @@
           "value": [
             "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}/providers/Microsoft.Kubernetes/connectedClusters/{{cluster}}/providers/Microsoft.KubernetesConfiguration/extensions/{{resource_name}}"
           ]
-        },
-        "apiVersion_3": {
-          "value": "{{CUSTOM_LOCATION_API_VERSION}}"
         },
         "namespace_4": {
           "value": "{{namespace}}"
@@ -108,6 +112,12 @@
         },
         "logsAutoUploadSelected_4": {
           "value": "{{control.spec.settings.azure.autoUploadLogs}}"
+        },
+        "logAnalyticsWorkspaceId_4": {
+            "value": "{{log_analytics.workspace_id}}"
+        },
+        "logAnalyticsPrimaryKey_4": {
+            "value": "{{log_analytics.primary_key}}"
         },
         "resourceTags_4": {
           "value": {}
@@ -160,8 +170,22 @@
         "resourceName_4": {
           "value": "{{control.spec.settings.controller.displayName}}"
         },
-        "apiVersion_4": {
-          "value": "{{DATA_CONTROLLER_API_VERSION}}"
+        "resourceSyncApiVersion": {
+          "value": "2021-08-31-preview"
+        },
+        "resourceSyncRuleName": {
+          "value": "defaultResourceSyncRule"
+        },
+        "resourceSyncTargetResourceGroup": {
+          "value": "/subscriptions/{{control.spec.settings.azure.subscription}}/resourceGroups/{{control.spec.settings.azure.resourceGroup}}"
+        },
+        "resourceSyncRulePriority": {
+          "value": 100
+        },
+        "resourceSyncMatchLabels": {
+          "value": {
+            "management.azure.com/resourceProvider": "Microsoft.AzureArcData"
+          }
         }
       },
       "template": {
@@ -270,6 +294,12 @@
           "logsAutoUploadSelected_4": {
             "type": "string"
           },
+          "logAnalyticsWorkspaceId_4": {
+            "type": "String"
+          },
+          "logAnalyticsPrimaryKey_4": {
+            "type": "String"
+          },
           "resourceTags_4": {
             "type": "object"
           },
@@ -323,188 +353,32 @@
           },
           "apiVersion_4": {
             "type": "string"
+          },
+          "resourceSyncApiVersion": {
+            "type": "string"
+          },
+          "resourceSyncRuleName": {
+            "type": "string"
+          },
+          "resourceSyncTargetResourceGroup": {
+            "type": "string"
+          },
+          "resourceSyncRulePriority": {
+            "type": "int"
+          },
+          "resourceSyncMatchLabels": {
+            "type": "object"
           }
         },
         "functions": [],
         "variables": {},
         "resources": [
-          {% if include_extension %}
-          {
-            "identity": {
-              "type": "SystemAssigned"
-            },
-            "scope": "[parameters('parentResource')]",
-            "properties": {
-              "extensionType": "microsoft.arcdataservices",
-              "autoUpgradeMinorVersion": false,
-              "releaseTrain": "[parameters('releaseTrain')]",
-              "version": "[parameters('version')]",
-              "scope": {
-                "cluster": {
-                  "releaseNamespace": "[parameters('namespace')]"
-                }
-              },
-              "configurationSettings": {
-                "Microsoft.CustomLocation.ServiceAccount": "sa-arc-bootstrapper",
-                "aad.customLocationObjectId": "51dfe1e8-70c6-4de5-a08e-e18aff23d815",
-                "imageCredentials.username": "[parameters('imageUsername')]",
-                "imageCredentials.registry": "[parameters('imageRegistry')]",
-                "systemDefaultValues.image": "[parameters('imageVersion')]",
-                "systemDefaultValues.imagePullPolicy": "[parameters('imagePullPolicy')]"
-              },
-              "configurationProtectedSettings": {
-                "imageCredentials.password": "[parameters('imagePassword')]"
-              }
-            },
-            "apiVersion": "[parameters('apiVersion')]",
-            "type": "Microsoft.KubernetesConfiguration/extensions",
-            "name": "[parameters('resourceName')]"
-          },
-          {% endif %}
-          {% if include_roles %}
-          {
-            "type": "Microsoft.Authorization/roleAssignments",
-            "apiVersion": "[parameters('apiVersion_1')]",
-            "name": "[parameters('resourceName_1')]",
-            "properties": {
-              "roleDefinitionId": "[parameters('roleDefinitionId_1')]",
-              "principalId": "[reference(parameters('resourceName'), parameters('apiVersion'), 'Full').identity.principalId]"
-            },
-            "dependsOn": [
-              "[parameters('resourceName')]"
-            ]
-          },
-          {
-            "type": "Microsoft.Authorization/roleAssignments",
-            "apiVersion": "[parameters('apiVersion_2')]",
-            "name": "[parameters('resourceName_2')]",
-            "properties": {
-              "roleDefinitionId": "[parameters('roleDefinitionId_2')]",
-              "principalId": "[reference(parameters('resourceName'), parameters('apiVersion'), 'Full').identity.principalId]"
-            },
-            "dependsOn": [
-              "[parameters('resourceName_1')]"
-            ]
-          },
-          {% endif %}
-          {% if include_custom_location %}
-          {
-            "name": "[parameters('resourceName_3')]",
-            "location": "[parameters('location_3')]",
-            "type": "Microsoft.ExtendedLocation/customLocations",
-            "properties": {
-              "hostType": "Kubernetes",
-              "hostResourceId": "[parameters('hostResourceId_3')]",
-              "namespace": "[parameters('namespace_3')]",
-              "displayName": "",
-              "clusterExtensionIds": "[parameters('clusterExtensionIds_3')]",
-              "authentication": {}
-            },
-            "apiVersion": "[parameters('apiVersion_3')]",
-            "dependsOn": [
-              "[parameters('resourceName_2')]"
-            ]
-          },
-          {% endif %}
-          {
-            "extendedLocation": {
-              "name": "[parameters('customLocationId_4')]",
-              "type": "CustomLocation"
-            },
-            "location": "[parameters('location_4')]",
-            "tags": "[parameters('resourceTags_4')]",
-            "properties": {
-              "metricsDashboardCredential": {
-                "username": "[parameters('metricsAndLogsDashboardUsername_4')]",
-                "password": "[parameters('metricsAndLogsDashboardPassword_4')]"
-              },
-              "logsDashboardCredential": {
-                "username": "[parameters('metricsAndLogsDashboardUsername_4')]",
-                "password": "[parameters('metricsAndLogsDashboardPassword_4')]"
-              },
-              "logAnalyticsWorkspaceConfig": {},
-              "infrastructure": "[parameters('infrastructure_4')]",
-              "k8sRaw": {
-                "kind": "DataController",
-                "spec": {
-                  "credentials": {
-                    "dockerRegistry": "[parameters('dockerRegistryCredential_4')]",
-                    "domainServiceAccount": "domain-service-account-secret",
-                    "serviceAccount": "sa-arc-controller"
-                  },
-                  "security": {
-                    "allowDumps": true,
-                    "allowNodeMetricsCollection": true,
-                    "allowPodMetricsCollection": true
-                  },
-                  "services": [
-                    {
-                      "name": "controller",
-                      "port": "[parameters('controllerPort_4')]",
-                      "serviceType": "[parameters('serviceType_4')]"
-                    }
-                  ],
-                  "settings": {
-                    "ElasticSearch": {
-                      "vm.max_map_count": "-1"
-                    },
-                    "azure": {
-                      "autoUploadMetrics": "[parameters('metricsAutoUploadSelected_4')]",
-                      "autoUploadLogs": "[parameters('logsAutoUploadSelected_4')]",
-                      "subscription": "[parameters('subscription_4')]",
-                      "resourceGroup": "[parameters('resourceGroup_4')]",
-                      "location": "[parameters('location_4')]",
-                      "connectionMode": "[parameters('connectionMode_4')]"
-                    },
-                    "controller": {
-                      "logs.rotation.days": "7",
-                      "logs.rotation.size": "5000",
-                      "displayName": "[parameters('controllerName_4')]"
-                    }
-                  },
-                  "storage": {
-                    "data": {
-                      "accessMode": "ReadWriteOnce",
-                      "className": "[parameters('dataStorageClass_4')]",
-                      "size": "[parameters('dataStorageSize_4')]"
-                    },
-                    "logs": {
-                      "accessMode": "ReadWriteOnce",
-                      "className": "[parameters('logsStorageClass_4')]",
-                      "size": "[parameters('logsStorageSize_4')]"
-                    }
-                  },
-                  "infrastructure": "[parameters('infrastructure_4')]",
-                  "docker": {
-                    "registry": "[parameters('dockerRegistry_4')]",
-                    "repository": "[parameters('dockerRepository_4')]",
-                    "imageTag": "[parameters('dockerImageTag_4')]",
-                    "imagePullPolicy": "[parameters('dockerImagePullPolicy_4')]"
-                  }
-                },
-                "metadata": {
-                  "namespace": "[parameters('namespace_4')]",
-                  "name": "datacontroller"
-                },
-                "apiVersion": "arcdata.microsoft.com/v2",
-                "status": {
-                  "azure": {
-                    "uploadStatus": {
-                      "metrics": {},
-                      "logs": {},
-                      "usage": {}
-                    }
-                  }
-                }
-              }
-            },
-            "apiVersion": "[parameters('apiVersion_4')]",
-            "type": "Microsoft.AzureArcData/dataControllers",
-            "name": "[parameters('resourceName_4')]",
-            "dependsOn": [
-              "[parameters('resourceName_3')]"
-            ]
-          }
+          {% for resource in resources %}
+             {% set template = resource.tmpl %} {% include template %}
+             {%- if not loop.last %}
+               ,
+             {% endif %}
+          {% endfor %}
         ],
         "outputs": {}
       },

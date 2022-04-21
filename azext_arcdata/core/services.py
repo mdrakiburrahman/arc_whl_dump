@@ -94,7 +94,7 @@ class BaseServiceProxy(object):
             "SqlManagedInstance": dc_constants.SQLMI_CRD,
             "SqlManagedInstanceRestoreTask": dc_constants.SQLMI_RESTORE_TASK_CRD,
             "ExportTask": dc_constants.EXPORT_TASK_CRD,
-            "Dag": dc_constants.DAG_CRD,
+            "FailoverGroup": dc_constants.FOG_CRD,
             "ActiveDirectoryConnector": dc_constants.ACTIVE_DIRECTORY_CONNECTOR_CRD,
             "Monitor": dc_constants.MONITOR_CRD,
             "DataController": dc_constants.DATA_CONTROLLER_CRD,
@@ -109,7 +109,7 @@ class BaseServiceProxy(object):
             "SqlManagedInstance": dc_constants.SQLMI_SPEC,
             "SqlManagedInstanceRestoreTask": dc_constants.SQLMI_RESTORE_TASK_SPEC,
             "ExportTask": dc_constants.EXPORT_TASK_SPEC,
-            "Dag": dc_constants.DAG_SPEC,
+            "FailoverGroup": dc_constants.FOG_SPEC,
             "Monitor": dc_constants.MONITOR_SPEC,
             "DataController": dc_constants.DATA_CONTROLLER_SPEC,
         }
@@ -349,23 +349,50 @@ class ArmDataControllerServiceProxy(BaseDataControllerServiceProxy, ArmMixin):
         if not os.path.exists(path):
             raise NotADirectoryError(f"Profile not found:\n'{path}'")
 
-        return self._arm_client.create_dc(
-            command_value_object.resource_group,
-            command_value_object.name,
-            command_value_object.location,
-            command_value_object.custom_location,
-            command_value_object.connectivity_mode,
-            path=path,
-            storage_class=command_value_object.storage_class,
-            infrastructure=command_value_object.infrastructure,
-            auto_upload_metrics=command_value_object.auto_upload_metrics,
-            auto_upload_logs=command_value_object.auto_upload_logs,
-            polling=polling,
+        if command_value_object.cluster_name:
+            return self._arm_client.create_dc(
+                command_value_object.resource_group,
+                command_value_object.name,
+                command_value_object.custom_location,
+                command_value_object.connectivity_mode,
+                command_value_object.cluster_name,
+                command_value_object.namespace,
+                path,
+                storage_class=command_value_object.storage_class,
+                infrastructure=command_value_object.infrastructure,
+                auto_upload_metrics=command_value_object.auto_upload_metrics,
+                auto_upload_logs=command_value_object.auto_upload_logs,
+                polling=polling,
+            )
+        else:
+            return self._arm_client.__create_depreciated_dc__(
+                command_value_object.resource_group,
+                command_value_object.name,
+                command_value_object.location,
+                command_value_object.custom_location,
+                command_value_object.connectivity_mode,
+                path=path,
+                storage_class=command_value_object.storage_class,
+                infrastructure=command_value_object.infrastructure,
+                auto_upload_metrics=command_value_object.auto_upload_metrics,
+                auto_upload_logs=command_value_object.auto_upload_logs,
+                polling=polling,
+            )
+
+    def update(self, cvo: tuple):
+        return self._arm_client.update_dc(
+            cvo.client,
+            cvo.resource_group_name,
+            cvo.name,
+            cvo.auto_upload_logs,
+            cvo.auto_upload_metrics,
         )
 
     def update_maintenance_window(self, cvo: tuple):
         raise Exception(
-            "Updating basic maintenance windows is only available through kubernetes directly,  please use the --use-k8s switch and run the command again."
+            "Updating basic maintenance windows is only available through "
+            "kubernetes directly,  please use the --use-k8s switch and run the "
+            "command again."
         )
 
     def delete(self, command_value_object: tuple):
@@ -390,9 +417,12 @@ class ArmDataControllerServiceProxy(BaseDataControllerServiceProxy, ArmMixin):
         pass
 
     def get_status(self, command_value_object: tuple):
-        return self._arm_client.get_dc(
-            command_value_object.resource_group,
-            command_value_object.name,
+        resource_group = command_value_object.resource_group
+        name = command_value_object.name
+        return (
+            self._arm_client.list_dc(resource_group)
+            if not name
+            else self._arm_client.get_dc(resource_group, name)
         )
 
     def get_config(self, command_value_object: tuple):
@@ -432,19 +462,19 @@ class KubernetesManagedInstanceServiceProxy(
     def get_mirroring_certificate(self, command_value_object: tuple):
         pass
 
-    def create_dag(self, command_value_object: tuple):
-        return self.client.create_dag_mi(
+    def create_fog(self, command_value_object: tuple):
+        return self.client.create_fog_mi(
             command_value_object.name,
             command_value_object.namespace or self.namespace,
         )
 
-    def delete_dag(self, command_value_object: tuple):
-        return self.client.delete_dag_mi(
+    def delete_fog(self, command_value_object: tuple):
+        return self.client.delete_fog_mi(
             command_value_object.name,
             command_value_object.namespace or self.namespace,
         )
 
-    def list_dag(self, command_value_object: tuple):
+    def list_fog(self, command_value_object: tuple):
         pass
 
 
@@ -496,17 +526,18 @@ class KubernetesDataControllerServiceProxy(
             nowait=command_value_object.no_wait,
         )
 
-    def update_maintenance_window(self, cvo: tuple):
+    def update(self, cvo: tuple):
         """
-        Proxy call to pass the update maintenance window command to the appropriate client.
+        Proxy call to pass the update command to the appropriate client.
         """
-        return self._client.update_maintenance_window(
-            cvo.client,
-            cvo.namespace,
-            cvo.maintenance_start,
-            cvo.maintenance_duration,
-            cvo.maintenance_recurrence,
-            cvo.maintenance_time_zone,
+        return self._client.update(
+            client=cvo.client,
+            namespace=cvo.namespace,
+            maintenance_start=cvo.maintenance_start,
+            maintenance_duration=cvo.maintenance_duration,
+            maintenance_recurrence=cvo.maintenance_recurrence,
+            maintenance_time_zone=cvo.maintenance_time_zone,
+            maintenance_enabled=cvo.maintenance_enabled,
         )
 
     def delete(self, command_value_object: tuple):

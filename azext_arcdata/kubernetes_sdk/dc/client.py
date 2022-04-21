@@ -9,6 +9,7 @@
 import base64
 import os
 import time
+from azext_arcdata.sqlmi.util import resolve_old_dag_items
 import azext_arcdata.core.kubernetes as kubernetes_util
 import pydash as _
 import yaml
@@ -85,7 +86,7 @@ from azext_arcdata.kubernetes_sdk.dc.constants import (
     CONTROLLER_LABEL,
     CONTROLLER_LOGIN_SECRET_NAME,
     CONTROLLER_SVC,
-    DAG_CRD,
+    FOG_CRD,
     DATA_CONTROLLER_CRD,
     DATA_CONTROLLER_CRD_NAME,
     DIRECT,
@@ -460,7 +461,7 @@ class DataControllerClient(object):
             SQLMI_CRD,
             SQLMI_RESTORE_TASK_CRD,
             EXPORT_TASK_CRD,
-            DAG_CRD,
+            FOG_CRD,
             ACTIVE_DIRECTORY_CONNECTOR_CRD,
             MONITOR_CRD,
             KAFKA_CRD,
@@ -817,9 +818,7 @@ class DataControllerClient(object):
             lambda: self._client.list_namespaced_custom_object(
                 namespace=cluster_name,
                 group=ARC_GROUP,
-                version=self._client.get_crd_version(
-                    "datacontrollers.arcdata.microsoft.com"
-                ),
+                version=self._client.get_crd_version(DATA_CONTROLLER_CRD_NAME),
                 plural=DATA_CONTROLLER_PLURAL,
             ),
             retry_count=CONNECTION_RETRY_ATTEMPTS,
@@ -2157,6 +2156,41 @@ class DataControllerClient(object):
 
         raise JobNotCompleteException("Job not deleted")
 
+    @staticmethod
+    def read_namespaced_job_log(namespace, job_name, job_uid):
+        job_pods = k8sClient.CoreV1Api().list_namespaced_pod(
+            namespace=namespace,
+            label_selector="job-name={},controller-uid={}".format(
+                job_name, job_uid
+            ),
+        )
+        job_pod_log = k8sClient.CoreV1Api().read_namespaced_pod_log(
+            name=job_pods.items[0].metadata.name, namespace=namespace
+        )
+        return job_pod_log
+
+    def _output_error_log(self, log):
+        for line in log.splitlines():
+            if line.startswith("ERROR") or line.startswith("FATAL"):
+                self.stderr(line)
+
+    def _dump_pre_upgrade_validation_job_log(self, namespace):
+        jobs = (
+            k8sClient.BatchV1Api()
+            .list_namespaced_job(
+                field_selector="metadata.name=upgrade-validation-job",
+                namespace=namespace,
+            )
+            .items
+        )
+
+        if jobs:
+            self._output_error_log(
+                self.read_namespaced_job_log(
+                    namespace, jobs[0].metadata.name, jobs[0].metadata.uid
+                )
+            )
+
     @retry_method(
         12, 10, "await bootstrapper job complete", (JobNotCompleteException)
     )
@@ -2190,7 +2224,12 @@ class DataControllerClient(object):
             return
 
         if status.failed == 1:
-            self.stderr(job)
+            self._output_error_log(
+                self.read_namespaced_job_log(
+                    namespace, job.metadata.name, job.metadata.uid
+                )
+            )
+            self._dump_pre_upgrade_validation_job_log(namespace)
             raise Exception("Privileged bootstrapper job failed.")
 
         raise JobNotCompleteException("Job Still Active")
@@ -2206,6 +2245,16 @@ class DataControllerClient(object):
                 "One or more postgres preview instances exist in the cluster and must be deleted prior to upgrading the data controller."
             )
 
+    def validate_no_old_dag(self, namespace):
+        """
+        Valid old dag items before this release. User has to remove dag before the upgrade.
+        """
+        dag_items = resolve_old_dag_items(namespace)
+        if len(dag_items) > 0:
+            raise Exception(
+                "One or more Dag preview instances exist in the cluster and must be deleted prior to upgrading the data controller."
+            )
+
     # ------------------------------------------------------------------------ #
     # Upgrade
     # ------------------------------------------------------------------------ #
@@ -2213,6 +2262,7 @@ class DataControllerClient(object):
     def upgrade(self, namespace, target, dry_run=None, nowait=False):
 
         self.validate_no_pg_bc(namespace=namespace)
+        self.validate_no_old_dag(namespace=namespace)
 
         target = resolve_valid_target_version(namespace, target)
 
@@ -2239,7 +2289,7 @@ class DataControllerClient(object):
                 self._await_dc_ready(namespace)
             self.stdout("Data controller successfully upgraded.")
 
-    def update_maintenance_window(
+    def update(
         self,
         client,
         namespace=None,
@@ -2247,6 +2297,7 @@ class DataControllerClient(object):
         maintenance_duration=None,
         maintenance_recurrence=None,
         maintenance_time_zone=None,
+        maintenance_enabled=None,
     ):
         """
         Updates the maintenance window for the given namespace's data controller.  This is a patch operation and as such will only alter parameters that are present
@@ -2264,11 +2315,12 @@ class DataControllerClient(object):
         if maintenance_time_zone is not None:
             patchBody["timeZone"] = maintenance_time_zone
 
+        if maintenance_enabled is not None:
+            patchBody["enabled"] = maintenance_enabled
+
         patch = {"spec": {"settings": {"maintenance": patchBody}}}
 
-        result = patch_data_controller(namespace, patch)
-
-        return result
+        patch_data_controller(namespace, patch)
 
     def list_upgrades(self, namespace):
         from azext_arcdata.kubernetes_sdk.arc_docker_image_service import (

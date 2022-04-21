@@ -60,7 +60,6 @@ helps[
             az sql mi-arc create --name name --resource-group group 
             --location location --subscription subscription  
             --custom-location custom-location
-            
 """.format(
     short="Create a SQL managed instance.",
     long="To set the password of the SQL managed instance, set the environment "
@@ -317,17 +316,17 @@ helps[
 
 # pylint: disable=line-too-long
 helps[
-    "sql mi-arc dag"
+    "sql instance-failover-group-arc"
 ] = """
     type: group
     short-summary: {short}
 """.format(
-    short="Create or Delete a Distributed Availability Group."
+    short="Create or Delete a Failover Group."
 )
 
 # pylint: disable=line-too-long
 helps[
-    "sql mi-arc dag create"
+    "sql instance-failover-group-arc create"
 ] = """
     type: command
     short-summary: {short}
@@ -337,24 +336,24 @@ helps[
           text: >
             {cmd}
 """.format(
-    short="Create a distributed availability group custom resource",
-    long="Create a distributed availability group custom resource to create a "
+    short="Create a failover group custom resource",
+    long="Create a failover group custom resource to create a "
     "distributed availability group ",
-    cmd="az sql mi-arc dag create --name dagCr1 --dag-name dagName1 "
-    "--local-instance-name sqlmi1 --role primary "
-    "--remote-instance-name sqlmi2 "
-    "--remote-mirroring-url remotePrimary:5022 "
-    "--remote-mirroring-cert-file ./sqlmi2.cer --use-k8s",
-    ex1="Ex 1 - Create a distributed availability group custom resource dagCr1 "
-    "to create distributed availability group dagName1 between local sqlmi "
-    "instance sqlmi1 and remote sqlmi instance sqlmi2. It requires remote "
-    "sqlmi primary mirror remotePrimary:5022 and remote sqlmi mirror "
+    cmd="az sql instance-failover-group-arc create --name fogCr1 --shared-name sharedName1 "
+    "--mi sqlmi1 --role primary "
+    "--partner-mi sqlmi2 "
+    "--partner-mirroring-url partnerPrimary:5022 "
+    "--partner-mirroring-cert-file ./sqlmi2.cer --use-k8s",
+    ex1="Ex 1 - Create a failover group custom resource fogCr1 "
+    "to create failover group by using shared name sharedName1 between sqlmi "
+    "instance sqlmi1 and partner sqlmi instance sqlmi2. It requires partner "
+    "sqlmi primary mirror partnerPrimary:5022 and partner sqlmi mirror "
     "endpoint certificate file ./sqlmi2.cer.",
 )
 
 # pylint: disable=line-too-long
 helps[
-    "sql mi-arc dag update"
+    "sql instance-failover-group-arc update"
 ] = """
     type: command
     short-summary: {short}
@@ -364,18 +363,18 @@ helps[
           text: >
             {cmd}
 """.format(
-    short="Update a distributed availability group custom resource",
-    long="Update a distributed availability group custom resource to change the role of "
+    short="Update a failover group custom resource",
+    long="Update a failover group custom resource to change the role of "
     "distributed availability group ",
-    cmd="az sql mi-arc dag update --name dagCr1 "
+    cmd="az sql instance-failover-group-arc update --name fogCr1 "
     "--role secondary --use-k8s",
-    ex1="Ex 1 - Update a distributed availability group custom resource dagCr1 "
+    ex1="Ex 1 - Update a failover group custom resource fogCr1 "
     "to secondary role from primary",
 )
 
 # pylint: disable=line-too-long
 helps[
-    "sql mi-arc dag delete"
+    "sql instance-failover-group-arc delete"
 ] = """
     type: command
     short-summary: {short}
@@ -383,18 +382,17 @@ helps[
     examples:
         - name: {ex1}
           text: >
-            az sql mi-arc dag delete --name dagCr1 --use-k8s
+            az sql instance-failover-group-arc delete --name fogCr1 --use-k8s
 """.format(
-    short="Delete a distributed availability group custom resource on a sqlmi "
-    "instance.",
-    long="Delete a distributed availability group custom resource on a sqlmi "
+    short="Delete a failover group custom resource on a sqlmi instance.",
+    long="Delete a failover group custom resource on a sqlmi "
     "instance to delete a distributed availability group. It requires a "
     "custom resource name.",
-    ex1="Ex 1 - delete distributed availability group resources named dagCr1.",
+    ex1="Ex 1 - delete failover group resources named fogCr1.",
 )
 
 helps[
-    "sql mi-arc dag show"
+    "sql instance-failover-group-arc show"
 ] = """
     type: command
     short-summary: {short}
@@ -402,10 +400,10 @@ helps[
     examples:
         - name: {ex1}
           text: >
-            az sql mi-arc dag show --name dagCr1 --use-k8s
+            az sql instance-failover-group-arc show --name fogCr1 --use-k8s
 """.format(
     short="show a distributed availability group custom resource.",
     long="show a distributed availability group custom resource. "
     "It requires a custom resource name",
-    ex1="Ex 1 - show distributed availability group resources named dagCr1.",
+    ex1="Ex 1 - show failover group resources named fogCr1.",
 )

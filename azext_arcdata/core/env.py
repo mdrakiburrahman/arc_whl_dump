@@ -25,6 +25,53 @@ class Env(object):
     """
 
     @staticmethod
+    def get(env):
+        """
+        This is the currently supported list of environment values and lookup.
+        :return: The given env variable value otherwise `None`.
+        """
+        e = None
+        getenv = os.getenv
+
+        if env == "DOCKER_REGISTRY":
+            e = getenv("CONTROLLER_REGISTRY") or getenv("DOCKER_REGISTRY")
+
+        if env == "DOCKER_REPOSITORY":
+            e = getenv("CONTROLLER_REPOSITORY") or getenv("DOCKER_REPOSITORY")
+
+        if env == "DOCKER_IMAGE_TAG":
+            e = getenv("CONTROLLER_IMAGE_TAG") or getenv("DOCKER_IMAGE_TAG")
+
+        if env == "DOCKER_USERNAME":
+            e = os.getenv("DOCKER_USERNAME") or getenv("REGISTRY_USERNAME")
+
+        if env == "DOCKER_PASSWORD":
+            e = os.getenv("DOCKER_PASSWORD") or getenv("REGISTRY_PASSWORD")
+
+        if env == "WORKSPACE_ID":
+            e = getenv("WORKSPACE_ID") or getenv("LOG_WORKSPACE_ID")
+
+        if env == "WORKSPACE_SHARED_KEY":
+            e = getenv("WORKSPACE_SHARED_KEY") or getenv("LOG_SHARED_KEY")
+
+        if env == "ARC_DATASERVICES_EXTENSION_RELEASE_TRAIN":
+            e = getenv("ARC_DATASERVICES_EXTENSION_RELEASE_TRAIN")
+
+        if env == "ARC_DATASERVICES_EXTENSION_VERSION_TAG":
+            e = getenv("ARC_DATASERVICES_EXTENSION_VERSION_TAG")
+
+        if env == "AZDATA_USERNAME":
+            e = getenv("AZDATA_USERNAME")
+
+        if env == "AZDATA_PASSWORD":
+            e = getenv("AZDATA_PASSWORD")
+
+        if env == "FEATURE_FLAG_RESOURCE_SYNC":
+            e = getenv("FEATURE_FLAG_RESOURCE_SYNC")
+
+        return e
+
+    @staticmethod
     def is_set(env_var: str) -> bool:
         """
         Checks if the given environment variable is set and not empty/whitespace

@@ -4,7 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from azext_arcdata.dc.azure.constants import (
+from azext_arcdata.arm_sdk.azure.constants import (
     INSTANCE_TYPE_DATA_CONTROLLER,
     RESOURCE_PROVIDER_NAMESPACE,
 )
@@ -15,6 +15,7 @@ from azext_arcdata.core.constants import (
     CLI_ARG_GROUP_DIRECT_TEXT,
     CLI_ARG_GROUP_INDIRECT_TEXT,
     CLI_ARG_RESOURCE_GROUP_TEXT,
+    CLI_ARG_GROUP_USE_K8S,
 )
 from azext_arcdata.kubernetes_sdk.dc.constants import CONFIG_DIR
 from azext_arcdata.kubernetes_sdk.dc.common_util import (
@@ -32,12 +33,6 @@ def load_arguments(self, _):
             help="The name for the data controller.",
         )
         arg_context.argument(
-            "location",
-            options_list=["--location", "-l"],
-            help="The Azure location in which the data controller metadata "
-            "will be stored (e.g. eastus).",
-        )
-        arg_context.argument(
             "resource_group",
             options_list=["--resource-group", "-g"],
             help=CLI_ARG_RESOURCE_GROUP_TEXT,
@@ -47,6 +42,13 @@ def load_arguments(self, _):
             options_list=["--connectivity-mode"],
             help="The connectivity to Azure - indirect or direct - which the "
             "data controller should operate in.",
+        )
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            help="The Kubernetes namespace to deploy the data "
+            "controller into. If it exists already it will be used. If it "
+            "does not exist, an attempt will be made to create it first.",
         )
         arg_context.argument(
             "path",
@@ -65,34 +67,11 @@ def load_arguments(self, _):
             ),
         ),
         arg_context.argument(
-            "logs_ui_public_key_file",
-            options_list=["--logs-ui-public-key-file"],
-            help="Path to the file containing a PEM formatted certificate "
-            "to be used for the Logs UI dashboard endpoint.",
-        ),
-        arg_context.argument(
-            "logs_ui_private_key_file",
-            options_list=["--logs-ui-private-key-file"],
-            help="Path to the file containing a PEM formatted certificate "
-            "private key to be used for the Logs UI dashboard endpoint.",
-        ),
-        arg_context.argument(
-            "metrics_ui_public_key_file",
-            options_list=["--metrics-ui-public-key-file"],
-            help="Path to the file containing a PEM formatted certificate "
-            "to be used for the Metrics UI dashboard endpoint.",
-        ),
-        arg_context.argument(
-            "metrics_ui_private_key_file",
-            options_list=["--metrics-ui-private-key-file"],
-            help="Path to the file containing a PEM formatted certificate "
-            "private key to be used for the Metrics UI dashboard endpoint.",
-        )
-        arg_context.argument(
             "storage_class",
             options_list=["--storage-class"],
-            help="[Required] The storage class to be use for all data and logs persistent "
-            "volumes for all data controller pods that require them.",
+            help="[Required] The storage class to be use for all data and logs "
+            "persistent volumes for all data controller pods that "
+            "require them.",
         )
         arg_context.argument(
             "infrastructure",
@@ -102,64 +81,99 @@ def load_arguments(self, _):
                 get_valid_dc_infrastructures()
             ),
         )
-        arg_context.argument(
-            "labels",
-            options_list=["--labels"],
-            help="Comma-separated list of labels to apply to all data "
-            "controller resources.",
-        )
+        # -- indirect ----------------------------------------------------------
         arg_context.argument(
             "annotations",
             options_list=["--annotations"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of annotations to apply all data "
             "controller resources.",
         )
         arg_context.argument(
+            "labels",
+            options_list=["--labels"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Comma-separated list of labels to apply to all data "
+            "controller resources.",
+        )
+        arg_context.argument(
+            "location",
+            options_list=["--location", "-l"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="[Required] The Azure location in which the data controller "
+            "metadata will be stored (e.g. eastus).",
+        )
+        arg_context.argument(
+            "logs_ui_private_key_file",
+            options_list=["--logs-ui-private-key-file"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Path to the file containing a PEM formatted certificate "
+            "private key to be used for the Logs UI dashboard endpoint.",
+        ),
+        arg_context.argument(
+            "logs_ui_public_key_file",
+            options_list=["--logs-ui-public-key-file"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Path to the file containing a PEM formatted certificate "
+            "to be used for the Logs UI dashboard endpoint.",
+        ),
+        arg_context.argument(
+            "metrics_ui_private_key_file",
+            options_list=["--metrics-ui-private-key-file"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Path to the file containing a PEM formatted certificate "
+            "private key to be used for the Metrics UI dashboard endpoint.",
+        )
+        arg_context.argument(
+            "metrics_ui_public_key_file",
+            options_list=["--metrics-ui-public-key-file"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="Path to the file containing a PEM formatted certificate "
+            "to be used for the Metrics UI dashboard endpoint.",
+        ),
+        arg_context.argument(
             "service_annotations",
             options_list=["--service-annotations"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of annotations to apply to all external "
             "data controller services.",
         )
         arg_context.argument(
             "service_labels",
             options_list=["--service-labels"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of labels to apply to all external "
             "data controller services.",
         )
         arg_context.argument(
             "storage_annotations",
             options_list=["--storage-annotations"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of annotations to apply to all PVCs "
             "created by the data controller.",
         )
         arg_context.argument(
             "storage_labels",
             options_list=["--storage-labels"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of labels to apply to all PVCs created "
             "by the data controller.",
-        )
-        # -- indirect --
-        arg_context.argument(
-            "namespace",
-            options_list=["--k8s-namespace", "-k"],
-            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-            help="[Required] The Kubernetes namespace to deploy the data "
-            "controller into. If it exists already it will be used. If it "
-            "does not exist, an attempt will be made to create it first.",
         )
         arg_context.argument(
             "use_k8s",
             options_list=["--use-k8s"],
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             action="store_true",
-            help="Create data controller using local Kubernetes APIs.",
+            help="[Required] Create data controller using local Kubernetes "
+            "APIs.",
         )
-        # -- direct --
+        # -- direct ------------------------------------------------------------
         arg_context.argument(
-            "custom_location",
-            options_list=["--custom-location"],
+            "auto_upload_logs",
+            options_list=["--auto-upload-logs"],
+            choices=["true", "false"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="[Required] The name of the custom location.",
+            help="Enable auto upload logs.",
         )
         arg_context.argument(
             "auto_upload_metrics",
@@ -169,11 +183,16 @@ def load_arguments(self, _):
             help="Enable auto upload metrics.",
         )
         arg_context.argument(
-            "auto_upload_logs",
-            options_list=["--auto-upload-logs"],
-            choices=["true", "false"],
+            "custom_location",
+            options_list=["--custom-location"],
             arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
-            help="Enable auto upload logs.",
+            help="[Required] The name of the custom location.",
+        )
+        arg_context.argument(
+            "cluster_name",
+            options_list=["--cluster-name"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
+            help="[Required] Name of the Kubernetes cluster.",
         )
 
     with ArgumentsContext(self, "arcdata dc update") as arg_context:
@@ -197,45 +216,63 @@ def load_arguments(self, _):
             help="Enable auto upload metrics.",
             choices=["true", "false"],
         )
-
-        # todo: temporarily disabled
-        # todo: see: https://msdata.visualstudio.com/Tina/_workitems/edit/1656601
-
-    # with ArgumentsContext(self, "arcdata dc update mw") as arg_context:
-    #     arg_context.argument(
-    #         "use_k8s",
-    #         options_list=["--use-k8s"],
-    #         arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-    #         action="store_true",
-    #         help="Create data controller using local Kubernetes APIs.",
-    #     )
-    #     arg_context.argument(
-    #         "namespace",
-    #         options_list=["--k8s-namespace", "-k"],
-    #         arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-    #         help="[Required] The Kubernetes namespace with a deployed "
-    #         "data controller.",
-    #     )
-    #     arg_context.argument(
-    #         "maintenance_start",
-    #         options_list=["--start"],
-    #         help="Date time of first maintenance window.",
-    #     )
-    #     arg_context.argument(
-    #         "maintenance_duration",
-    #         options_list=["--duration"],
-    #         help="Duration of the maintenance window.",
-    #     )
-    #     arg_context.argument(
-    #         "maintenance_recurrence",
-    #         options_list=["--recurrence"],
-    #         help="Recurring interval.",
-    #     )
-    #     arg_context.argument(
-    #         "maintenance_time_zone",
-    #         options_list=["--time-zone"],
-    #         help="Timezone used to calculate maintenance window.",
-    #     )
+        arg_context.argument(
+            "use_k8s",
+            options_list=["--use-k8s"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            action="store_true",
+            help="Create data controller using local Kubernetes APIs.",
+        )
+        arg_context.argument(
+            "namespace",
+            options_list=["--k8s-namespace", "-k"],
+            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
+            help="[Required] The Kubernetes namespace with a deployed "
+            "data controller.",
+        )
+        arg_context.argument(
+            "maintenance_start",
+            options_list=["--maintenance-start"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Date time of the start of the first default maintenance window.",
+        )
+        arg_context.argument(
+            "maintenance_duration",
+            options_list=["--maintenance-duration"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Duration of the default maintenance window.",
+        )
+        arg_context.argument(
+            "maintenance_recurrence",
+            options_list=["--maintenance-recurrence"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Recurring interval for the default maintenance window.",
+        )
+        arg_context.argument(
+            "maintenance_time_zone",
+            options_list=["--maintenance-time-zone"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Timezone used to calculate the default maintenance window.",
+        )
+        arg_context.argument(
+            "maintenance_time_zone",
+            options_list=["--maintenance-time-zone"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Timezone used to calculate maintenance window.",
+        )
+        arg_context.argument(
+            "maintenance_enabled",
+            options_list=["--maintenance-enabled"],
+            arg_group=CLI_ARG_GROUP_USE_K8S,
+            help="Set the enabled flag on the default maintenance window.",
+            choices=["true", "false"],
+        )
+        arg_context.argument(
+            "desired_version",
+            options_list=["--desired-version", "-v"],
+            help="The desired version tag to which the data controller will "
+            "be upgraded, or empty to use the latest.",
+        )
 
     with ArgumentsContext(self, "arcdata dc delete") as arg_context:
         arg_context.argument(

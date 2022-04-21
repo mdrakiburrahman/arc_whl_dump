@@ -701,13 +701,6 @@ class PostgresqlCustomResource(CustomResource):
                     )
                 )
 
-            if not name_meets_dns_requirements(n):
-                raise ValueError(
-                    "Postgres server name '{}' does not follow DNS requirements: {}".format(
-                        n, DNS_NAME_REQUIREMENTS
-                    )
-                )
-
             self._name = n
 
     class Status(CustomResource.Status):
