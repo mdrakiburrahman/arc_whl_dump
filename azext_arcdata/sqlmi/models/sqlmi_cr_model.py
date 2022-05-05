@@ -74,6 +74,7 @@ class SqlmiCustomResource(CustomResource):
             serviceType: str = None,
             license_type: str = None,
             tier: str = None,
+            dev: bool = False,
             *args,
             **kwargs,
         ):
@@ -86,7 +87,9 @@ class SqlmiCustomResource(CustomResource):
             self.preferredPrimaryReplicaSpec = (
                 self.PreferredPrimaryReplicaSpec()
             )
+
             self.tier = tier
+            self.dev = dev
             self.license_type = license_type
             self.settings = {}
             self.backup = self.Backup()
@@ -112,6 +115,18 @@ class SqlmiCustomResource(CustomResource):
             The tier. Default to None.
             """
             return self._tier
+
+        @property
+        def dev(self) -> bool:
+            """
+            True if this is a dev object, false otherwise. Not a k8s thing,
+            for internal use
+            """
+            return self._dev
+
+        @dev.setter
+        def dev(self, d: bool):
+            self._dev = d
 
         @property
         def license_type(self) -> str:
@@ -642,6 +657,7 @@ class SqlmiCustomResource(CustomResource):
 
         def _hydrate(self, d: dict):
             super()._hydrate(d)
+
             if "replicas" in d:
                 self.replicas = d["replicas"]
             if "readableSecondaries" in d:
@@ -658,6 +674,8 @@ class SqlmiCustomResource(CustomResource):
                 )
             if "tier" in d:
                 self.tier = d["tier"]
+            if "dev" in d:
+                self.dev = d["dev"]
             if "licenseType" in d:
                 self.license_type = d["licenseType"]
             if "settings" in d:
@@ -678,6 +696,7 @@ class SqlmiCustomResource(CustomResource):
                 "preferredPrimaryReplicaSpec"
             ] = self.preferredPrimaryReplicaSpec._to_dict()
             base["tier"] = self.tier
+            base["dev"] = self.dev
             base["licenseType"] = self.license_type
             base["settings"] = getattr(self, "settings", None)
             base["backup"] = self.backup._to_dict()
@@ -961,6 +980,7 @@ class SqlmiCustomResource(CustomResource):
             "cores_limit",
         )
         self._set_if_provided(self.spec, "tier", kwargs, "tier")
+        self._set_if_provided(self.spec, "dev", kwargs, "dev")
         self._set_if_provided(self.spec, "license_type", kwargs, "license_type")
 
         self._set_if_provided(
@@ -1048,48 +1068,55 @@ class SqlmiCustomResource(CustomResource):
 
         # Set Active Directory args
         #
-        self._set_if_provided(
-            self.spec.security.activeDirectory,
-            "account_name",
-            kwargs,
-            "ad_account_name",
-        )
-        self._set_if_provided(
-            self.spec.security.activeDirectory,
-            "keytab_secret",
-            kwargs,
-            "keytab_secret",
-        )
-        self._set_if_provided(
-            self.spec.security.activeDirectory.active_directory_connector,
-            "name",
-            kwargs,
-            "ad_connector_name",
-        )
-        self._set_if_provided(
-            self.spec.security.activeDirectory.active_directory_connector,
-            "namespace",
-            kwargs,
-            "ad_connector_namespace",
-        )
-        self._set_if_provided(
-            self.spec.services.primary, "dnsName", kwargs, "primary_dns_name"
-        )
-        self._set_if_provided(
-            self.spec.services.primary, "port", kwargs, "primary_port_number"
-        )
-        # self._set_if_provided(
-        #     self.spec.services.secondary,
-        #     "dnsName",
-        #     kwargs,
-        #     "secondary_dns_name"
-        # )
-        # self._set_if_provided(
-        #     self.spec.services.secondary,
-        #     "port",
-        #     kwargs,
-        #     "secondary_port_number"
-        # )
+        if self._get_if_provided(kwargs, "ad_connector_name"):
+            self._set_if_provided(
+                self.spec.security.activeDirectory,
+                "account_name",
+                kwargs,
+                "ad_account_name",
+            )
+            self._set_if_provided(
+                self.spec.security.activeDirectory,
+                "keytab_secret",
+                kwargs,
+                "keytab_secret",
+            )
+            self._set_if_provided(
+                self.spec.security.activeDirectory.active_directory_connector,
+                "name",
+                kwargs,
+                "ad_connector_name",
+            )
+            self._set_if_provided(
+                self.spec.security.activeDirectory.active_directory_connector,
+                "namespace",
+                kwargs,
+                "namespace",
+            )
+            self._set_if_provided(
+                self.spec.services.primary,
+                "dnsName",
+                kwargs,
+                "primary_dns_name",
+            )
+            self._set_if_provided(
+                self.spec.services.primary,
+                "port",
+                kwargs,
+                "primary_port_number",
+            )
+            # self._set_if_provided(
+            #     self.spec.services.secondary,
+            #     "dnsName",
+            #     kwargs,
+            #     "secondary_dns_name"
+            # )
+            # self._set_if_provided(
+            #     self.spec.services.secondary,
+            #     "port",
+            #     kwargs,
+            #     "secondary_port_number"
+            # )
 
         # Construct SQL MI settings based on args
         #

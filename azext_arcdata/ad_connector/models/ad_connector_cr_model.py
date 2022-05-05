@@ -119,10 +119,20 @@ class ActiveDirectoryConnectorCustomResource(CustomResource):
                 self,
                 realm: str = None,
                 netbios_domain_name: str = None,
+                domain_service_account_secret: str = None,
+                service_account_provisioning: str = None,
+                ou_distinguished_name: str = None,
                 domain_controllers: DomainControllers = DomainControllers(),
             ):
                 self._realm = realm
                 self._netbios_domain_name = netbios_domain_name
+                self._domain_service_account_secret = (
+                    domain_service_account_secret
+                )
+                self._service_account_provisioning = (
+                    service_account_provisioning
+                )
+                self._ou_distinguished_name = ou_distinguished_name
                 self._domain_controllers = domain_controllers
 
             @property
@@ -142,12 +152,28 @@ class ActiveDirectoryConnectorCustomResource(CustomResource):
                 self._netbios_domain_name = value
 
             @property
-            def netbios_domain_name(self) -> str:
-                return self._netbios_domain_name
+            def ou_distinguished_name(self) -> str:
+                return self._ou_distinguished_name
 
-            @netbios_domain_name.setter
-            def netbios_domain_name(self, value: str):
-                self._netbios_domain_name = value
+            @ou_distinguished_name.setter
+            def ou_distinguished_name(self, value: str):
+                self._ou_distinguished_name = value
+
+            @property
+            def domain_service_account_secret(self) -> str:
+                return self._domain_service_account_secret
+
+            @domain_service_account_secret.setter
+            def domain_service_account_secret(self, value: str):
+                self._domain_service_account_secret = value
+
+            @property
+            def service_account_provisioning(self) -> str:
+                return self._service_account_provisioning
+
+            @service_account_provisioning.setter
+            def service_account_provisioning(self, value: str):
+                self._service_account_provisioning = value
 
             @property
             def domain_controllers(self) -> str:
@@ -160,6 +186,16 @@ class ActiveDirectoryConnectorCustomResource(CustomResource):
             def _hydrate(self, d: dict):
                 if "realm" in d:
                     self.realm = d["realm"]
+                if "domainServiceAccountSecret" in d:
+                    self.domain_service_account_secret = d[
+                        "domainServiceAccountSecret"
+                    ]
+                if "serviceAccountProvisioning" in d:
+                    self.service_account_provisioning = d[
+                        "serviceAccountProvisioning"
+                    ]
+                if "ouDistinguishedName" in d:
+                    self.ou_distinguished_name = d["ouDistinguishedName"]
                 if "netbiosDomainName" in d:
                     self.netbios_domain_name = d["netbiosDomainName"]
                 if "domainControllers" in d:
@@ -169,6 +205,9 @@ class ActiveDirectoryConnectorCustomResource(CustomResource):
                 return {
                     "realm": self.realm,
                     "netbiosDomainName": self.netbios_domain_name,
+                    "ouDistinguishedName": self.ou_distinguished_name,
+                    "serviceAccountProvisioning": self.service_account_provisioning,
+                    "domainServiceAccountSecret": self.domain_service_account_secret,
                     "domainControllers": self._domain_controllers._to_dict(),
                 }
 

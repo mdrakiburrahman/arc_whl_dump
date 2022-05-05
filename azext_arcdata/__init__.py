@@ -36,7 +36,7 @@ class ArcDataCommandsLoader(AzCommandsLoader):
         sqlmi_commands(self, args)
         sqlmidb_commands(self, args)
         dc_commands(self, args)
-        # disable: ad_connector_commands(self, args)
+        ad_connector_commands(self, args)
 
         return self.command_table
 
@@ -61,7 +61,7 @@ class ArcDataCommandsLoader(AzCommandsLoader):
         sqlmi_arguments(self, command)
         sqlmidb_arguments(self, command)
         dc_arguments(self, command)
-        # disable ad_arguments(self, command)
+        ad_arguments(self, command)
 
 
 COMMAND_LOADER_CLS = ArcDataCommandsLoader

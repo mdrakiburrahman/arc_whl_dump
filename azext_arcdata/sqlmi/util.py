@@ -6,14 +6,14 @@
 
 from collections import OrderedDict
 from azext_arcdata.ad_connector.constants import (
-    AD_CONNECTOR_API_GROUP,
-    AD_CONNECTOR_RESOURCE_KIND_PLURAL,
+    ACCOUNT_PROVISIONING_MODE_MANUAL,
 )
+from azext_arcdata.ad_connector.util import _get_ad_connector_custom_resource
 from azext_arcdata.ad_connector.validators import _validate_domain_name
 from azext_arcdata.kubernetes_sdk.dc.constants import (
-    ACTIVE_DIRECTORY_CONNECTOR_CRD_NAME,
     DATA_CONTROLLER_CRD_NAME,
 )
+from azext_arcdata.kubernetes_sdk.models.custom_resource import CustomResource
 from azext_arcdata.kubernetes_sdk.util import check_secret_exists_with_retries
 from azext_arcdata.kubernetes_sdk.dc.constants import DATA_CONTROLLER_CRD_NAME
 from azext_arcdata.core.constants import ARC_API_V1BETA2
@@ -24,7 +24,11 @@ from azext_arcdata.core.constants import (
     DIRECT,
 )
 from azext_arcdata.core.labels import parse_labels
-from azext_arcdata.core.util import is_valid_password, retry
+from azext_arcdata.core.util import (
+    check_and_set_kubectl_context,
+    is_valid_password,
+    retry,
+)
 from azext_arcdata.kubernetes_sdk.client import (
     K8sApiException,
     KubernetesClient,
@@ -394,35 +398,22 @@ def validate_admin_login_secret(client, namespace, admin_login_secret):
         )
 
 
-def validate_ad_connector(client, name, namespace):
+def validate_ad_connector(
+    client, name, namespace, sqlmi_namespace, keytab_secret
+):
     if not name or not namespace:
         raise ValueError(
             "To enable Active Directory (AD) authentication, both the resource name and namespace of the AD connector are required."
         )
 
-    custom_object_exists = retry(
-        lambda: client.apis.kubernetes.namespaced_custom_object_exists(
-            name,
-            namespace,
-            group=AD_CONNECTOR_API_GROUP,
-            version=KubernetesClient.get_crd_version(
-                ACTIVE_DIRECTORY_CONNECTOR_CRD_NAME
-            ),
-            plural=AD_CONNECTOR_RESOURCE_KIND_PLURAL,
-        ),
-        retry_method="get namespaced custom object",
-        retry_on_exceptions=(
-            NewConnectionError,
-            MaxRetryError,
-            KubernetesError,
-        ),
-    )
+    check_and_set_kubectl_context()
 
-    if not custom_object_exists:
-        raise ValueError(
-            "Active Directory connector `{}` does not exist in namespace "
-            "`{}`.".format(name, namespace)
-        )
+    cr = _get_ad_connector_custom_resource(client, name, namespace)
+    if (
+        cr.spec.active_directory.service_account_provisioning
+        == ACCOUNT_PROVISIONING_MODE_MANUAL
+    ):
+        validate_keytab_secret(client, sqlmi_namespace, keytab_secret)
 
 
 def validate_keytab_secret(client, namespace, keytab_secret_name):
@@ -431,10 +422,17 @@ def validate_keytab_secret(client, namespace, keytab_secret_name):
     """
     keytab_entry_in_secret = "keytab"
 
+    if not keytab_secret_name:
+        raise ValueError(
+            "The name of the Kubernetes secret containing the Active Directory keytab is required."
+        )
+
+    check_and_set_kubectl_context()
+
     # Check if secret exists
     #
     if not check_secret_exists_with_retries(
-        client.apis.kubernetes, namespace, keytab_secret_name
+        client, namespace, keytab_secret_name
     ):
         raise ValueError(
             "Kubernetes secret `{}` not found in namespace `{}`.".format(
@@ -443,9 +441,7 @@ def validate_keytab_secret(client, namespace, keytab_secret_name):
         )
 
     k8s_secret = retry(
-        lambda: client.apis.kubernetes.get_secret(
-            namespace, keytab_secret_name
-        ),
+        lambda: client.get_secret(namespace, keytab_secret_name),
         retry_method="get secret",
         retry_on_exceptions=(
             NewConnectionError,
@@ -463,49 +459,6 @@ def validate_keytab_secret(client, namespace, keytab_secret_name):
             "Kubernetes secret '{0}' does not have key '{1}'".format(
                 keytab_secret_name, keytab_entry_in_secret
             )
-        )
-
-
-def validate_dns_service(name="", port=0, type="primary"):
-    if not _validate_domain_name(name):
-        raise ValueError(
-            "The {0} DNS service name '{1}' is invalid.".format(type, name)
-        )
-
-    try:
-        port = int(port)
-        assert 0 <= port <= 65535
-        return True
-    except:
-        raise ValueError(
-            "The {0} DNS service port '{1}' is invalid.".format(type, port)
-        )
-
-
-def validate_active_directory_args(
-    client,
-    ad_connector_name,
-    ad_connector_namespace,
-    ad_account_name,
-    keytab_secret,
-    primary_dns_name,
-    primary_port_number,
-    secondary_dns_name,
-    secondary_port_number,
-):
-    validate_ad_connector(client, ad_connector_name, ad_connector_namespace)
-    validate_keytab_secret(client, ad_connector_namespace, keytab_secret)
-
-    if not ad_account_name:
-        raise ValueError(
-            "The Active Directory account name for this Arc-enabled SQL Managed Instance is missing or invalid."
-        )
-
-    validate_dns_service(primary_dns_name, primary_port_number, "primary")
-
-    if secondary_dns_name or secondary_port_number:
-        validate_dns_service(
-            secondary_dns_name, secondary_port_number, "secondary"
         )
 
 

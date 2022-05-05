@@ -4,7 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from azext_arcdata.arm_sdk.dc.client import beget
+from azext_arcdata.core.cli_client import beget
 from azure.cli.core.commands import CliCommandType
 
 import azext_arcdata.dc.validators as validators
@@ -21,7 +21,7 @@ def load_commands(self, _):
             "dc_endpoint_list",
             validator=validators.force_indirect,
         )  # , output=format_table)
-        g.command("upload", "dc_upload")
+        g.command("upload", "dc_upload", validator=validators.validate_upload)
         g.command(
             "update",
             "dc_update",

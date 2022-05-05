@@ -4,7 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from .swagger_1_0_0 import AzureArcDataManagementClient
+from .swagger.swagger_1_1_0 import AzureArcDataManagementClient
 from ._util import dict_to_dot_notation, wait, retry, wait_for_error
 from knack.log import get_logger
 from collections import namedtuple
@@ -38,7 +38,6 @@ class BaseClient(object):
     def __init__(self, subscription, credential):
         self._subscription = subscription
         self._mgmt_client = AzureArcDataManagementClient(
-            credential=credential,
             subscription_id=subscription,
         )
         self._session = requests.Session()
@@ -145,6 +144,7 @@ class DataControllerClient(BaseClient):
             "CONNECTED_CLUSTER": "2021-10-01",
             "ARC_DATA_SERVICES_EXTENSION": "2021-09-01",
             "ROLE_ASSIGNMENT": "2018-09-01-preview",
+            "CUSTOM_LOCATION": "2021-08-15",
         }
     )
 
@@ -174,6 +174,7 @@ class DataControllerClient(BaseClient):
             result = self._mgmt_client.data_controllers.get_data_controller(
                 resource_group_name=resource_group,
                 data_controller_name=name,
+                headers=self._session.headers,
             )
 
             logger.debug(json.dumps(result.as_dict(), indent=4))
@@ -192,6 +193,7 @@ class DataControllerClient(BaseClient):
                 resource_group_name=resource_group,
                 data_controller_name=name,
                 polling=polling,
+                headers=self._session.headers,
             )
 
             if polling:
@@ -210,7 +212,7 @@ class DataControllerClient(BaseClient):
     def list(self, resource_group):
         try:
             result = self._mgmt_client.data_controllers.list_in_group(
-                resource_group
+                resource_group, headers=self._session.headers
             )
 
             return result
@@ -226,6 +228,7 @@ class DataControllerClient(BaseClient):
                 resource_group_name=resource_group,
                 data_controller_name=name,
                 data_controller_resource=properties,
+                headers=self._session.headers,
             )
 
             return result
@@ -243,7 +246,7 @@ class DataControllerClient(BaseClient):
         dry_run=False,
         polling=True,
     ):
-        from .swagger_1_0_0.models import DataControllerResource
+        from .swagger.swagger_1_1_0.models import DataControllerResource
 
         def _dc_upgrade_completed():
             get_result = self.get(name, resource_group).properties.k8_s_raw
@@ -286,6 +289,7 @@ class DataControllerClient(BaseClient):
                     data_controller_name=name,
                     data_controller_resource=data_controller_resource,
                     polling=polling,
+                    headers=self._session.headers,
                 )
             )
 
@@ -370,6 +374,41 @@ class DataControllerClient(BaseClient):
         except Exception as e:
             raise e
 
+    def get_custom_location(self, custom_location, resource_group):
+        try:
+            url = (
+                f"{self.MGMT_URL}/resourceGroups/{resource_group}"
+                f"/providers/Microsoft.ExtendedLocation"
+                f"/customLocations"
+                f"?api-version={self.API_VERSION_MAP.CUSTOM_LOCATION}"
+            )
+
+            logger.debug(url)
+            response = self._session.get(url=url)
+
+            if (
+                response.status_code == 404
+                or len(response.json()["value"]) == 0
+            ):
+                raise Exception(
+                    f"No custom location was found under the resource group '{resource_group}'"
+                )
+            else:
+                custom_locations = response.json()
+                for resource in custom_locations["value"]:
+                    if custom_location == resource["name"]:
+                        return resource
+
+                raise Exception(
+                    f"The custom location '{custom_location}' was not found in the resource "
+                    f"group '{resource_group}'."
+                )
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
     def get_extensions(self, cluster_name, resource_group):
         try:
             url = (
@@ -397,6 +436,15 @@ class DataControllerClient(BaseClient):
             raise exceptions.HttpResponseError(e.message)
         except Exception as e:
             raise e
+
+    def get_extension_version(self, cluster_name, resource_group):
+        extension = self.get_extensions(cluster_name, resource_group)
+        exts = [] if len(extension["value"]) == 0 else extension["value"]
+        for ext in exts:
+            logger.debug(ext)
+            if ext["type"] == "Microsoft.KubernetesConfiguration/extensions":
+                properties = ext["properties"]
+                return properties["releaseTrain"], properties["version"]
 
     def get_role_assignments(self, cluster_name, resource_group):
         try:
@@ -451,6 +499,17 @@ class DataControllerClient(BaseClient):
                 namespace = ext_namespace
 
         return namespace
+
+    def get_custom_location_namespace(self, custom_location, resource_group):
+        custom_location_resource = self.get_custom_location(
+            custom_location, resource_group
+        )
+        try:
+            return custom_location_resource["properties"]["namespace"]
+        except:
+            raise ValueError(
+                "Unable to retrieve Kubernetes namespace from custom location"
+            )
 
     def get_resource_graph(self, cluster_name, resource_group, namespace):
         try:
@@ -541,110 +600,24 @@ class DataControllerClient(BaseClient):
 
     def __create_depreciated_dc__(
         self,
+        control,
         resource_group,
-        name,
-        location,
         custom_location,
-        connectivity_mode,
-        path=None,
-        storage_class=None,
-        infrastructure=None,
-        auto_upload_metrics=None,
-        auto_upload_logs=None,
+        cred,
+        log_analytics,
         polling=True,
     ):
-        from azext_arcdata.core.env import Env
-        from azext_arcdata.core.prompt import prompt_assert
-        from .swagger_1_0_0.models import (
+        from .swagger.swagger_1_1_0.models import (
             DataControllerResource,
             DataControllerProperties,
             ExtendedLocation,
             BasicLoginInformation,
+            LogAnalyticsWorkspaceConfig,
         )
 
         try:
-            # -- check existing dc to void dc recreate --
-            all_dcs = self.list_dc(resource_group)
-            dc_name_list = []
-            for curr_dc in all_dcs:
-                dc_name_list.append(curr_dc.as_dict()["name"])
-            if name in dc_name_list:
-                # Cannot do dc_put for the same dc now since it will break
-                # the status key in dc_get response
-                #
-                raise Exception(
-                    "A Data Controller {name} has already been created.".format(
-                        name=name
-                    )
-                )
-
-            config_file = os.path.join(path, "control.json")
-            logger.debug("Configuration profile: %s", config_file)
-
-            with open(config_file, encoding="utf-8") as input_file:
-                k8s = json.load(input_file)
-                logger.debug(json.dumps(k8s, indent=4))
-
-            # -- docker property overrides --
-            if os.getenv("CONTROLLER_REGISTRY"):
-                k8s["spec"]["docker"]["registry"] = os.getenv(
-                    "CONTROLLER_REGISTRY"
-                )
-
-            if os.getenv("CONTROLLER_REPOSITORY"):
-                k8s["spec"]["docker"]["repository"] = os.getenv(
-                    "CONTROLLER_REPOSITORY"
-                )
-
-            if os.getenv("CONTROLLER_IMAGE_TAG"):
-                k8s["spec"]["docker"]["imageTag"] = os.getenv(
-                    "CONTROLLER_IMAGE_TAG"
-                )
-
-            if auto_upload_metrics is not None:
-                # Grant the contributor role logic after this line. TBD
-                # Grant the matrixs publisher role logic after this line. TBD
-                k8s["spec"]["settings"]["azure"][
-                    "autoUploadMetrics"
-                ] = auto_upload_metrics
-
-            if auto_upload_logs is not None:
-                # Read the log work space info after this line. TBD
-                k8s["spec"]["settings"]["azure"][
-                    "autoUploadLogs"
-                ] = auto_upload_logs
-
-            if infrastructure:
-                k8s["spec"]["infrastructure"] = infrastructure
-            elif not k8s["spec"]["infrastructure"]:
-                k8s["spec"]["infrastructure"] = "onpremises"
-            infrastructure = k8s["spec"]["infrastructure"]
-
-            if storage_class:
-                k8s["spec"]["storage"]["data"]["className"] = storage_class
-                k8s["spec"]["storage"]["logs"]["className"] = storage_class
-
-            if (
-                not k8s["spec"]["storage"]["data"]["className"]
-                or not k8s["spec"]["storage"]["logs"]["className"]
-            ):
-                storage_class = prompt_assert("Storage class: ")
-                k8s["spec"]["storage"]["data"]["className"] = storage_class
-                k8s["spec"]["storage"]["logs"]["className"] = storage_class
-
-            # Populate the arm request body
-            k8s["spec"]["settings"]["controller"]["displayName"] = name
-            k8s["spec"]["settings"]["azure"][
-                "connectionMode"
-            ] = connectivity_mode
-            k8s["spec"]["settings"]["azure"]["location"] = location
-            k8s["spec"]["settings"]["azure"]["resourceGroup"] = resource_group
-            k8s["spec"]["settings"]["azure"][
-                "subscription"
-            ] = self._subscription
-            k8s["spec"]["credentials"][
-                "controllerAdmin"
-            ] = "controller-login-secret"
+            spec = control.spec
+            name = spec.settings.controller.displayName
 
             # -- extended-location --
             extended_location = ExtendedLocation(
@@ -660,21 +633,27 @@ class DataControllerClient(BaseClient):
             )
 
             # -- properties --
-            cred = Env.get_log_and_metrics_credentials()
             metrics_dashboard_credential = BasicLoginInformation(
                 username=cred.metrics_username, password=cred.metrics_password
             )
             logs_dashboard_credential = BasicLoginInformation(
                 username=cred.log_username, password=cred.log_password
             )
+            log_analytics_workspace_config = None
+            if log_analytics:
+                log_analytics_workspace_config = LogAnalyticsWorkspaceConfig(
+                    workspace_id=log_analytics["workspace_id"],
+                    primary_key=log_analytics["primary_key"],
+                )
             properties = DataControllerProperties(
-                infrastructure=infrastructure,
-                k8_s_raw=k8s,
+                infrastructure=spec.infrastructure,
+                k8_s_raw=control.to_dict,
                 metrics_dashboard_credential=metrics_dashboard_credential,
                 logs_dashboard_credential=logs_dashboard_credential,
+                log_analytics_workspace_config=log_analytics_workspace_config,
             )
             data_controller_resource = DataControllerResource(
-                location=location,
+                location=spec.settings.azure.location,
                 extended_location=extended_location,
                 properties=properties,
             )
@@ -687,13 +666,12 @@ class DataControllerClient(BaseClient):
             logger.debug("<DataControllerResource>")
             logger.debug(json.dumps(d, indent=4))
 
-            result = (
-                self._mgmt_client.data_controllers.begin_put_data_controller(
-                    resource_group_name=resource_group,
-                    data_controller_name=name,
-                    data_controller_resource=data_controller_resource,
-                    polling=polling,
-                )
+            self._mgmt_client.data_controllers.begin_put_data_controller(
+                resource_group_name=resource_group,
+                data_controller_name=name,
+                data_controller_resource=data_controller_resource,
+                polling=polling,
+                headers=self._session.headers,
             )
 
             if polling:

@@ -59,6 +59,19 @@ spec:
       jsonPath: .status.state
   - name: v4
     served: true
+    storage: false
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: State
+      type: string
+      jsonPath: .status.state
+  - name: v5
+    served: true
     storage: true
     schema:
       openAPIV3Schema:

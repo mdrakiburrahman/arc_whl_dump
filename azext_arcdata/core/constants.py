@@ -171,6 +171,11 @@ ARC_API_V4 = "v4"
 Defines the kubernetes api version v4 for Arc CRDs.
 """
 
+ARC_API_V5 = "v5"
+"""
+Defines the kubernetes api version v5 for Arc CRDs.
+"""
+
 KUBERNETES_LABEL_PREFIX = "app.kubernetes.io/"
 """
 Defines the prefix for common Kubernetes labels
@@ -192,7 +197,7 @@ DATA_CONTROLLER_PLURAL = "datacontrollers"
 Defines the plural name of data controllers.
 """
 
-DATA_CONTROLLER_CRD_VERSION = ARC_API_V4
+DATA_CONTROLLER_CRD_VERSION = ARC_API_V5
 """
 Defines the kubernetes api version for DataController CRD.
 """

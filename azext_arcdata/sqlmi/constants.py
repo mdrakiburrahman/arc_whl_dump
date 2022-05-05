@@ -6,7 +6,7 @@
 
 import os
 
-from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V4
+from azext_arcdata.core.constants import ARC_API_V1BETA2, ARC_API_V5
 
 RESOURCE_KIND = "SqlManagedInstance"
 """
@@ -23,7 +23,7 @@ API_GROUP = "sql.arcdata.microsoft.com"
 Defines the API group.
 """
 
-API_VERSION = ARC_API_V4
+API_VERSION = ARC_API_V5
 """
 Defines the API version.
 """
@@ -236,7 +236,7 @@ DAG_ROLES_UPDATE = set(
 
 DAG_ROLES_ALLOWED_VALUES_MSG_CREATE = (
     "Allowed values are: {0}, {1}. "
-    "role can be changed.".format(
+    "Role can be changed.".format(
         DAG_ROLE_PRIMARY,
         DAG_ROLE_SECONDARY,
     )

@@ -20,8 +20,12 @@ def validate_mutually_exclusive_arm_kubernetes(
         if not namespace.custom_location:
             required_for_arm.append("--custom-location")
 
-        if not namespace.cluster_name:
-            required_for_arm.append("--cluster-name")
+        # -- backwards compatibility (w/o --cluster-name) --
+        if not namespace.cluster_name and not namespace.location:
+            raise ArgumentUsageError(
+                "The following arguments are required: '--location' when "
+                "'--cluster-name' is not provided."
+            )
 
         if required_for_arm:
             msg = (

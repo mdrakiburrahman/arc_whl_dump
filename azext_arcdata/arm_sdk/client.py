@@ -4,11 +4,31 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from azext_arcdata.ad_connector.constants import (
+    ACCOUNT_PROVISIONING_MODE_AUTOMATIC,
+    ADC_SUPPORTED_EXTENSION_VERSION,
+)
+from azext_arcdata.ad_connector.util import (
+    _parse_nameserver_addresses,
+    _parse_num_replicas,
+    _parse_prefer_k8s_dns,
+)
+from azext_arcdata.core.constants import INDIRECT
+from azext_arcdata.arm_sdk.azure.constants import API_VERSION
 from ._util import dict_to_dot_notation, wait
 from ._arm_template import ARMTemplate
+from .azure.azure_resource_client import AzureResourceClient
 from ._arm_client import arm_clients
-from .swagger_1_0_0 import AzureArcDataManagementClient
-from .swagger_1_0_0.models import (
+from .swagger.swagger_1_1_0 import AzureArcDataManagementClient
+from .swagger.swagger_1_1_0.models import (
+    ActiveDirectoryConnectorResource,
+    ActiveDirectoryConnectorProperties,
+    ActiveDirectoryConnectorSpec,
+    ActiveDirectoryConnectorDomainDetails,
+    ActiveDirectoryConnectorDNSDetails,
+    ActiveDirectoryDomainControllers,
+    ActiveDirectoryDomainController,
+    DataControllerResource,
     SqlManagedInstance,
     ExtendedLocation,
     SqlManagedInstanceProperties,
@@ -29,6 +49,7 @@ import azure.core.exceptions as exceptions
 import os
 import json
 import requests
+import packaging
 import pydash as _
 import time
 
@@ -45,8 +66,12 @@ class ArmClient(object):
         self._subscription_id = subscription
         self._mgmt_client = AzureArcDataManagementClient(
             subscription_id=self._subscription_id,
-            credential=self._azure_credential,
         )
+        self._resource_client = AzureResourceClient(self._subscription_id)
+        self._headers = {
+            "Authorization": "Bearer {}".format(self._bearer),
+            "Content-Type": "application/json",
+        }
 
     # ======================================================================== #
     # == DC ================================================================== #
@@ -191,23 +216,90 @@ class ArmClient(object):
         This is the original dc create that expected the following to already
         be created:
         - extensions
-        - custom-location,
-        - roll assignments.
+        - roll assignments
+        - custom-location
 
         This will eventually be removed.
         """
         try:
+            # -- check existing dc to avoid dc recreate --
+            for dc in self.list_dc(resource_group):
+                if dc.name == name:
+                    raise Exception(
+                        f"A Data Controller {name} has already been created."
+                    )
+
+            config_file = os.path.join(path, "control.json")
+            logger.debug("Configuration profile: %s", config_file)
+
+            with open(config_file, encoding="utf-8") as input_file:
+                control = dict_to_dot_notation(json.load(input_file))
+
+            # -- high order control.json, merge in input to control.json --
+            spec = control.spec
+            spec.settings.controller.displayName = name
+            spec.credentials.controllerAdmin = "controller-login-secret"
+
+            # -- docker --
+            docker = spec.docker
+            docker.registry = Env.get("DOCKER_REGISTRY") or docker.registry
+            docker.repository = (
+                Env.get("DOCKER_REPOSITORY") or docker.repository
+            )
+            docker.imageTag = Env.get("DOCKER_IMAGE_TAG") or docker.imageTag
+
+            # -- azure --
+            azure = spec.settings.azure
+            azure.connectionMode = connectivity_mode
+            azure.location = location
+            azure.resourceGroup = resource_group
+            azure.subscription = self._subscription_id
+
+            # -- log analytics --
+            log_analytics = None
+            if auto_upload_metrics is not None:
+                azure.autoUploadMetrics = auto_upload_metrics
+            if auto_upload_logs is not None:
+                azure.autoUploadLogs = auto_upload_logs
+                w_id = Env.get("WORKSPACE_ID")
+                w_key = Env.get("WORKSPACE_SHARED_KEY")
+                if not w_id:
+                    w_id = prompt_assert("Log Analytics workspace ID: ")
+                if not w_key:
+                    w_key = prompt_assert("Log Analytics primary key: ")
+                log_analytics = {"workspace_id": w_id, "primary_key": w_key}
+
+            # -- infrastructure --
+            spec.infrastructure = infrastructure or spec.infrastructure
+            spec.infrastructure = spec.infrastructure or "onpremises"
+
+            # -- storage --
+            storage = spec.storage
+            storage.data.className = storage_class or storage.data.className
+            storage.logs.className = storage_class or storage.logs.className
+
+            if not storage.data.className or not storage.logs.className:
+                storage_class = prompt_assert("Storage class: ")
+                storage.data.className = storage_class
+                storage.logs.className = storage_class
+
+            # -- attempt to create cluster --
+            print("")
+            print("Deploying data controller")
+            print("")
+            print(
+                "NOTE: Data controller creation can take a significant "
+                "amount of time depending \non configuration, network "
+                "speed, and the number of nodes in the cluster."
+            )
+            print("")
+
             return self._arm_clients.dc.__create_depreciated_dc__(
+                control,
                 resource_group,
-                name,
-                location,
                 custom_location,
-                connectivity_mode,
-                path,
-                storage_class=storage_class,
-                infrastructure=infrastructure,
-                auto_upload_metrics=auto_upload_metrics,
-                auto_upload_logs=auto_upload_logs,
+                Env.get_log_and_metrics_credentials(),
+                log_analytics,
                 polling=polling,
             )
         except exceptions.HttpResponseError as e:
@@ -222,9 +314,18 @@ class ArmClient(object):
     def list_dc(self, resource_group):
         return self._arm_clients.dc.list(resource_group)
 
-    def update_dc(self, resource_group, name, properties: dict):
-        return self._arm_clients.dc.patch(
-            name, resource_group, properties=properties
+    def update_dc(
+        self,
+        resource_group,
+        name,
+        auto_upload_logs=None,
+        auto_upload_metrics=None,
+    ):
+        return self._resource_client.update_dc_resource(
+            name,
+            resource_group,
+            auto_upload_logs=auto_upload_logs,
+            auto_upload_metrics=auto_upload_metrics,
         )
 
     def delete_dc(self, resource_group, name, polling=True):
@@ -248,6 +349,9 @@ class ArmClient(object):
             polling=polling,
         )
 
+    def export_upload_log_and_metrics_dc(self, path):
+        self._resource_client.upload_dc_resource(path)
+
     # ======================================================================== #
     # == SQL MI ============================================================== #
     # ======================================================================== #
@@ -260,7 +364,7 @@ class ArmClient(object):
                 self._subscription_id,
                 resource_group,
                 resource_name,
-                "2021-11-01",
+                API_VERSION,
             )
         )
 
@@ -288,6 +392,12 @@ class ArmClient(object):
         license_type=None,
         tier=None,
         dev=None,
+        ad_connector_name=None,
+        ad_connector_namespace=None,
+        ad_account_name=None,
+        keytab_secret=None,
+        primary_dns_name=None,
+        primary_port_number=None,
         polling=True,
         # -- Not Support for now --
         # noexternal_endpoint=None,
@@ -307,6 +417,8 @@ class ArmClient(object):
         # service_annotations=None,
         # storage_labels=None,
         # storage_annotations=None,
+        # secondary_dns_name=None,
+        # secondary_port_number=None,
     ):
         try:
             # -- check existing sqlmi's to avoid duplicate sqlmi create --
@@ -408,6 +520,26 @@ class ArmClient(object):
             if tier:
                 all_prop["sku"]["tier"] = tier
 
+            # ===================== Active Directory ======================= #
+            if ad_connector_name:
+                k8s["spec"]["services"]["primary"]["dnsName"] = primary_dns_name
+                k8s["spec"]["services"]["primary"]["port"] = primary_port_number
+
+                k8s["spec"]["security"] = {
+                    "activeDirectory": {
+                        "accountName": ad_account_name,
+                        "connector": {
+                            "name": ad_connector_name,
+                            "namespace": ad_connector_namespace,
+                        },
+                    }
+                }
+
+                if keytab_secret:
+                    k8s["spec"]["security"]["activeDirectory"][
+                        "keytabSecret"
+                    ] = keytab_secret
+
             all_dcs = self.list_dc(resource_group)
             dc_name_list = []
             dc_in_rg = {}
@@ -481,6 +613,7 @@ class ArmClient(object):
                 "metadata",
                 "dev",
                 "readableSecondaries",
+                "security",
             }
             additional_properties = {}
             for key in k8s["spec"]:
@@ -492,7 +625,7 @@ class ArmClient(object):
             # -- Build properties --
             properties = SqlManagedInstanceProperties(
                 data_controller_id=dc_in_rg.name,
-                admin="controlleradmin",
+                admin=cred.username,
                 basic_login_information=BasicLoginInformation(
                     username=cred.username,
                     password=cred.password,
@@ -547,6 +680,8 @@ class ArmClient(object):
                 resource_group_name=resource_group,
                 sql_managed_instance_name=name,
                 sql_managed_instance=sql_managed_instance,
+                polling=polling,
+                headers=self._headers,
             )
 
             if polling:
@@ -591,6 +726,7 @@ class ArmClient(object):
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
                 polling=polling,
+                headers=self._headers,
             )
 
             return result
@@ -605,6 +741,7 @@ class ArmClient(object):
             result = self._mgmt_client.sql_managed_instances.get(
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
+                headers=self._headers,
             ).as_dict()
 
             logger.debug(json.dumps(result, indent=4))
@@ -621,6 +758,7 @@ class ArmClient(object):
             result = self._mgmt_client.sql_managed_instances.get(
                 resource_group_name=rg_name,
                 sql_managed_instance_name=sqlmi_name,
+                headers=self._headers,
             )
 
             logger.debug(json.dumps(result.as_dict(), indent=4))
@@ -774,6 +912,7 @@ class ArmClient(object):
         trace_flags=None,
         retention_days=None,
         resource_group=None,
+        keytab_secret=None,
     ):
         try:
             # get_sqmlmi then mixin properties
@@ -839,6 +978,10 @@ class ArmClient(object):
                 response.properties.readableSecondaries = readable_secondaries
             if license_type:
                 response.properties.license_type = license_type
+            if keytab_secret:
+                additional_properties["security"]["activeDirectory"][
+                    "keytabSecret"
+                ] = keytab_secret
 
             # -- Validation check -- prisioning is very slow so we check here
             #
@@ -867,6 +1010,7 @@ class ArmClient(object):
                 resource_group_name=resource_group,
                 sql_managed_instance_name=name,
                 sql_managed_instance=response,
+                headers=self._headers,
             )
 
             if not no_wait:
@@ -894,7 +1038,7 @@ class ArmClient(object):
         try:
             result = (
                 self._mgmt_client.sql_managed_instances.list_by_resource_group(
-                    rg_name
+                    rg_name, headers=self._headers
                 )
             )
 
@@ -1051,3 +1195,340 @@ class ArmClient(object):
 
         except Exception as e:
             raise e
+
+    # ======================================================================== #
+    # == AD Connector ======================================================== #
+    # ======================================================================== #
+
+    def create_ad_connector(
+        self,
+        name,
+        realm,
+        nameserver_addresses,
+        account_provisioning,
+        data_controller_name,
+        resource_group,
+        primary_domain_controller=None,
+        secondary_domain_controllers=None,
+        netbios_domain_name=None,
+        dns_domain_name=None,
+        num_dns_replicas=None,
+        prefer_k8s_dns=None,
+        ou_distinguished_name=None,
+    ):
+        try:
+            # Check that we can create an AD connector in direct mode
+            #
+            self._validate_connectivity_mode(
+                data_controller_name, resource_group
+            )
+            self._validate_extension_ad_support(
+                data_controller_name, resource_group
+            )
+
+            # -- check existing AD connectors to avoid duplicate creation --
+            #
+            connector_names = []
+            for connector in self.list_ad_connectors(
+                data_controller_name, resource_group
+            ):
+                connector_names.append(connector.as_dict()["name"])
+            if name in connector_names:
+                raise ValueError(
+                    "Active Directory connector '{name}' has already been created.".format(
+                        name=name
+                    )
+                )
+
+            domain_account = None
+            if account_provisioning == ACCOUNT_PROVISIONING_MODE_AUTOMATIC:
+                # -- acquire AD domain service account username/password --
+                cred = Env.get_active_directory_domain_account_credentials()
+
+                domain_account = BasicLoginInformation(
+                    username=cred.username,
+                    password=cred.password,
+                )
+
+            primary_dc = None
+            if primary_domain_controller:
+                primary_dc = ActiveDirectoryDomainController(
+                    hostname=primary_domain_controller
+                )
+
+            secondary_dcs = []
+            if secondary_domain_controllers:
+                for dc in secondary_domain_controllers.replace(" ", "").split(
+                    ","
+                ):
+                    if dc:
+                        secondary_dcs.append(
+                            ActiveDirectoryDomainController(hostname=dc)
+                        )
+
+            domain_controllers = ActiveDirectoryDomainControllers(
+                primary_domain_controller=primary_dc,
+                secondary_domain_controllers=secondary_dcs,
+            )
+
+            domain_details = ActiveDirectoryConnectorDomainDetails(
+                realm=realm,
+                domain_controllers=domain_controllers,
+                netbios_domain_name=netbios_domain_name,
+                service_account_provisioning=account_provisioning,
+                ou_distinguished_name=ou_distinguished_name,
+            )
+
+            dns_details = ActiveDirectoryConnectorDNSDetails(
+                nameserver_ip_addresses=_parse_nameserver_addresses(
+                    nameserver_addresses
+                ),
+                domain_name=dns_domain_name,
+                replicas=_parse_num_replicas(num_dns_replicas),
+                prefer_k8_s_dns_for_ptr_lookups=_parse_prefer_k8s_dns(
+                    prefer_k8s_dns
+                ),
+            )
+
+            spec = ActiveDirectoryConnectorSpec(
+                active_directory=domain_details, dns=dns_details
+            )
+
+            properties = ActiveDirectoryConnectorProperties(
+                domain_service_account_login_information=domain_account,
+                spec=spec,
+            )
+
+            # -- final request model --
+            ad_connector_resource = ActiveDirectoryConnectorResource(
+                properties=properties,
+            )
+            return self._mgmt_client.active_directory_connectors.begin_create(
+                resource_group_name=resource_group,
+                active_directory_connector_resource=ad_connector_resource,
+                data_controller_name=data_controller_name,
+                active_directory_connector_name=name,
+                headers=self._headers,
+            )
+
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def list_ad_connectors(self, data_controller_name, resource_group):
+        try:
+            result = self._mgmt_client.active_directory_connectors.list(
+                resource_group_name=resource_group,
+                data_controller_name=data_controller_name,
+                headers=self._headers,
+            )
+
+            return result
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def update_ad_connector(
+        self,
+        name,
+        data_controller_name,
+        resource_group,
+        nameserver_addresses=None,
+        primary_domain_controller=None,
+        secondary_domain_controllers=None,
+        num_dns_replicas=None,
+        prefer_k8s_dns=None,
+        domain_service_account_secret=None,
+    ):
+        try:
+            response: ActiveDirectoryConnectorResource = (
+                self._mgmt_client.active_directory_connectors.get(
+                    resource_group_name=resource_group,
+                    data_controller_name=data_controller_name,
+                    active_directory_connector_name=name,
+                    headers=self._headers,
+                )
+            )
+
+            if (
+                response.properties.provisioning_state == "Accepted"
+                or response.properties.provisioning_state == "Deleting"
+            ):
+                raise Exception("An existing operation is in progress.")
+
+            # Updating the AD connector in ARM is essentially re-creating it
+            #
+            new_resource: ActiveDirectoryConnectorResource = response
+
+            account_provisioning = (
+                response.properties.spec.active_directory.service_account_provisioning
+            )
+            domain_account = None
+            if (
+                domain_service_account_secret
+                and account_provisioning == ACCOUNT_PROVISIONING_MODE_AUTOMATIC
+            ):
+                # -- acquire AD domain service account username/password --
+                cred = Env.get_active_directory_domain_account_credentials()
+
+                domain_account = BasicLoginInformation(
+                    username=cred.username,
+                    password=cred.password,
+                )
+
+            if domain_account:
+                new_resource.properties.domain_service_account_login_information = (
+                    domain_account
+                )
+
+            if nameserver_addresses:
+                new_resource.properties.spec.dns.nameserver_ip_addresses = (
+                    _parse_nameserver_addresses(nameserver_addresses)
+                )
+
+            if primary_domain_controller:
+                new_resource.properties.spec.active_directory.domain_controllers.primary_domain_controller = ActiveDirectoryDomainController(
+                    hostname=primary_domain_controller
+                )
+
+            if secondary_domain_controllers:
+                secondary_dcs = []
+                for dc in secondary_domain_controllers.replace(" ", "").split(
+                    ","
+                ):
+                    if dc:
+                        secondary_dcs.append(
+                            ActiveDirectoryDomainController(hostname=dc)
+                        )
+                new_resource.properties.spec.active_directory.domain_controllers.secondary_domain_controllers = (
+                    secondary_dcs
+                )
+
+            if num_dns_replicas:
+                new_resource.properties.spec.dns.replicas = _parse_num_replicas(
+                    num_dns_replicas
+                )
+
+            if prefer_k8s_dns:
+                new_resource.properties.spec.dns.prefer_k8_s_dns_for_ptr_lookups = _parse_prefer_k8s_dns(
+                    prefer_k8s_dns
+                )
+
+            # -- final request model --
+            properties = ActiveDirectoryConnectorProperties(
+                domain_service_account_login_information=domain_account,
+                spec=new_resource.properties.spec,
+            )
+
+            updated_ad_connector_resource = ActiveDirectoryConnectorResource(
+                properties=properties,
+            )
+
+            return self._mgmt_client.active_directory_connectors.begin_create(
+                resource_group_name=resource_group,
+                active_directory_connector_resource=updated_ad_connector_resource,
+                data_controller_name=data_controller_name,
+                active_directory_connector_name=name,
+                headers=self._headers,
+            )
+
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def get_ad_connector(self, name, data_controller_name, resource_group):
+        try:
+            result = self._mgmt_client.active_directory_connectors.get(
+                resource_group_name=resource_group,
+                data_controller_name=data_controller_name,
+                active_directory_connector_name=name,
+                headers=self._headers,
+            )
+
+            logger.debug(json.dumps(result.as_dict(), indent=4))
+
+            return result
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def delete_ad_connector(self, name, data_controller_name, resource_group):
+        try:
+            poller = self._mgmt_client.active_directory_connectors.begin_delete(
+                resource_group_name=resource_group,
+                data_controller_name=data_controller_name,
+                active_directory_connector_name=name,
+                headers=self._headers,
+                polling=True,
+            )
+
+            cnt = 0
+            while True:
+                if poller.status() == "Succeeded":
+                    break
+                elif poller.status() == "InProgress":
+                    if cnt < 600:  # total wait time in seconds
+                        time.sleep(5)
+                        cnt += 5
+                    else:
+                        raise Exception("This operation has timed out.")
+                else:
+                    break
+        except exceptions.HttpResponseError as e:
+            logger.debug(e)
+            raise exceptions.HttpResponseError(e.message)
+        except Exception as e:
+            raise e
+
+    def _validate_connectivity_mode(self, data_controller_name, resource_group):
+        dc_resource: DataControllerResource = self.get_dc(
+            resource_group, data_controller_name
+        )
+        if (
+            dc_resource.properties.k8_s_raw["spec"]["settings"]["azure"][
+                "connectionMode"
+            ]
+            == INDIRECT
+        ):
+            raise ValueError(
+                "This cluster's data controller is in indirect connectivity mode. Please use the --use-k8s parameter to perform this action."
+            )
+
+    def _validate_extension_ad_support(
+        self, data_controller_name, resource_group
+    ):
+        dc_resource: DataControllerResource = self.get_dc(
+            resource_group, data_controller_name
+        )
+
+        custom_location_id = dc_resource.extended_location.name
+        custom_location = custom_location_id.split("/")[-1]
+        custom_location_resource = self._arm_clients.dc.get_custom_location(
+            custom_location, resource_group
+        )
+
+        connected_cluster_id = custom_location_resource["properties"][
+            "hostResourceId"
+        ]
+        cluster_name = connected_cluster_id.split("/")[-1]
+
+        train, version = self._arm_clients.dc.get_extension_version(
+            cluster_name, resource_group
+        )
+
+        if packaging.version.parse(version) < packaging.version.parse(
+            ADC_SUPPORTED_EXTENSION_VERSION
+        ):
+            raise ValueError(
+                "This cluster's Arc data services extension must be updated to version {0} or later in order to create an Active Directory connector.".format(
+                    ADC_SUPPORTED_EXTENSION_VERSION
+                )
+            )

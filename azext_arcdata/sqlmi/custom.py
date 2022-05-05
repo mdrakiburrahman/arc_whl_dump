@@ -16,7 +16,7 @@ from datetime import datetime
 import azext_arcdata.core.kubernetes as kubernetes_util
 import yaml
 
-from azext_arcdata.core.arcdata_cli_credentials import ArcDataCliCredential
+from azext_arcdata.core.identity import ArcDataCliCredential
 from azext_arcdata.core.constants import (
     ARC_GROUP,
     AZDATA_PASSWORD,
@@ -84,7 +84,7 @@ from azext_arcdata.sqlmi.util import (
     RETRY_INTERVAL,
     is_valid_connectivity_mode,
     is_valid_sql_password,
-    validate_active_directory_args,
+    validate_ad_connector,
     validate_admin_login_secret,
     validate_keytab_secret,
     validate_labels_and_annotations,
@@ -145,12 +145,11 @@ def arc_sql_mi_create(
     custom_location=None,
     resource_group=None,
     # -- Active Directory --
-    # ad_connector_name=None,
-    # ad_connector_namespace=None,
-    # ad_account_name=None,
-    # keytab_secret=None,
-    # primary_dns_name=None,
-    # primary_port_number=None,
+    ad_connector_name=None,
+    ad_account_name=None,
+    keytab_secret=None,
+    primary_dns_name=None,
+    primary_port_number=None,
     # secondary_dns_name=None,
     # secondary_port_number=None,
 ):
@@ -167,6 +166,24 @@ def arc_sql_mi_create(
             cred = ArcDataCliCredential()
             subscription = client.subscription
             armclient = ArmClient(cred, subscription)
+            sqlmi_namespace = (
+                armclient._arm_clients.dc.get_custom_location_namespace(
+                    custom_location, resource_group
+                )
+            )
+
+            # Note: might not be equal in a cross-namespace scenario
+            #
+            ad_connector_namespace = sqlmi_namespace
+
+            if ad_connector_name:
+                validate_ad_connector(
+                    client.apis.kubernetes,
+                    ad_connector_name,
+                    ad_connector_namespace,
+                    sqlmi_namespace,
+                    keytab_secret,
+                )
 
             mi = armclient.create_sqlmi(
                 name=name,
@@ -191,6 +208,12 @@ def arc_sql_mi_create(
                 location=location,
                 custom_location=custom_location,
                 resource_group=resource_group,
+                ad_connector_name=ad_connector_name,
+                ad_connector_namespace=ad_connector_namespace,
+                ad_account_name=ad_account_name,
+                keytab_secret=keytab_secret,
+                primary_dns_name=primary_dns_name,
+                primary_port_number=primary_port_number,
                 polling=not no_wait,
             )
 
@@ -242,6 +265,8 @@ def arc_sql_mi_create(
         cr.metadata.namespace = namespace
         cr.apply_args(**args)
         cr.validate(client.apis.kubernetes)
+
+        logger.debug("Using --dev == '%s'", cr.spec.dev)
 
         # If tier is provided and not replicas, then default replicas based on
         #  given tier value
@@ -313,20 +338,19 @@ def arc_sql_mi_create(
 
         # Validate Active Directory args if enabling AD auth
         #
-        """
-        if ad_connector_name or ad_connector_namespace:
-            validate_active_directory_args(
-                client,
+        if ad_connector_name:
+
+            # Note: might not be equal in a cross-namespace scenario
+            #
+            ad_connector_namespace = namespace
+
+            validate_ad_connector(
+                client.apis.kubernetes,
                 ad_connector_name,
                 ad_connector_namespace,
-                ad_account_name,
+                namespace,
                 keytab_secret,
-                primary_dns_name,
-                primary_port_number,
-                secondary_dns_name,
-                secondary_port_number,
             )
-        """
 
         if not noexternal_endpoint:
             response = retry(
@@ -729,7 +753,7 @@ def arc_sql_mi_update(
     # -- direct --
     resource_group=None,
     # -- Active Directory --
-    # keytab_secret=None,
+    keytab_secret=None,
 ):
     """
     Edit the configuration of a SQL managed instance.
@@ -769,6 +793,21 @@ def arc_sql_mi_update(
                 None,
                 None,
             )
+            sqlmi = armclient.get_sqlmi(resource_group, name)
+
+            if keytab_secret:
+                sqlmi_namespace = sqlmi["properties"]["k8_s_raw"]["spec"][
+                    "metadata"
+                ]["namespace"]
+                security = sqlmi["properties"]["k8_s_raw"]["spec"]["security"]
+                if security and not security["activeDirectory"]:
+                    raise CLIError(
+                        "Cannot update Active Directory (AD) keytab if this "
+                        "instance does not have AD enabled."
+                    )
+                validate_keytab_secret(
+                    client.apis.kubernetes, sqlmi_namespace, keytab_secret
+                )
 
             mi = armclient.update_sqlmi(
                 name=name,
@@ -788,6 +827,7 @@ def arc_sql_mi_update(
                 trace_flags=trace_flags,
                 retention_days=retention_days,
                 resource_group=resource_group,
+                keytab_secret=keytab_secret,
             )
 
             if no_wait:
@@ -825,7 +865,6 @@ def arc_sql_mi_update(
 
         # Active Directory only
         #
-        """
         if keytab_secret:
             if not cr.spec.security.activeDirectory:
                 raise CLIError(
@@ -833,7 +872,6 @@ def arc_sql_mi_update(
                     "instance does not have AD enabled."
                 )
             validate_keytab_secret(client, namespace, keytab_secret)
-        """
 
         if preferred_primary_replica:
             if not _check_replica_name(
@@ -986,7 +1024,9 @@ def arc_sql_mi_delete(
                     else:
                         raise CLIError(poller.status())
                 else:
-                    raise CLIError(poller.status())
+                    break
+                    # raise CLIError(poller.status())
+
             # return poller
             client.stdout(
                 f"Deleted {name} from resource group {resource_group}"
@@ -1031,7 +1071,7 @@ def arc_sql_mi_show(
             subscription = client.subscription
             arm_client = ArmClient(cred, subscription)
 
-            response = arm_client.get_sqlmi(
+            response = arm_client.get_sqlmi_as_obj(
                 rg_name=resource_group, sqlmi_name=name
             )
 
@@ -1428,7 +1468,7 @@ def arc_sql_mi_fog_create(
 
         if state != "succeeded":
             raise CLIError(
-                "Create Distributed AG return state({0}), result({1})".format(
+                "Create failover group return state({0}), result({1})".format(
                     state, results
                 )
             )

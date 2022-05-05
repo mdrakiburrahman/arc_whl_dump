@@ -1,5 +1,5 @@
 {
-   "apiVersion": "arcdata.microsoft.com/v4",
+   "apiVersion": "arcdata.microsoft.com/v5",
    "kind": "DataController",
    "metadata": {
       "name": "datacontroller"
@@ -13,7 +13,7 @@
       "docker": {
          "registry": "mcr.microsoft.com",
          "repository": "arcdata",
-         "imageTag": "v1.5.0_2022-04-05",
+         "imageTag": "v1.6.0_2022-05-02",
          "imagePullPolicy": "Always"
       },
       "storage": {

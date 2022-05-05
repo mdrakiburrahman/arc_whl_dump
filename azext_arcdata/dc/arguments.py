@@ -38,6 +38,12 @@ def load_arguments(self, _):
             help=CLI_ARG_RESOURCE_GROUP_TEXT,
         )
         arg_context.argument(
+            "location",
+            options_list=["--location", "-l"],
+            help="The Azure location in which the data controller "
+            "metadata will be stored (e.g. eastus).",
+        )
+        arg_context.argument(
             "connectivity_mode",
             options_list=["--connectivity-mode"],
             help="The connectivity to Azure - indirect or direct - which the "
@@ -95,13 +101,6 @@ def load_arguments(self, _):
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
             help="Comma-separated list of labels to apply to all data "
             "controller resources.",
-        )
-        arg_context.argument(
-            "location",
-            options_list=["--location", "-l"],
-            arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-            help="[Required] The Azure location in which the data controller "
-            "metadata will be stored (e.g. eastus).",
         )
         arg_context.argument(
             "logs_ui_private_key_file",
@@ -207,12 +206,14 @@ def load_arguments(self, _):
         arg_context.argument(
             "auto_upload_logs",
             options_list=["--auto-upload-logs"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help="Enable auto upload logs.",
             choices=["true", "false"],
         )
         arg_context.argument(
             "auto_upload_metrics",
             options_list=["--auto-upload-metrics"],
+            arg_group=CLI_ARG_GROUP_DIRECT_TEXT,
             help="Enable auto upload metrics.",
             choices=["true", "false"],
         )

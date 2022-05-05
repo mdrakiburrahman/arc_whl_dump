@@ -4,7 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
-from azext_arcdata.sqlmidb.client import beget
+from azext_arcdata.core.cli_client import beget
 from azure.cli.core.commands import CliCommandType
 import azext_arcdata.ad_connector.validators as validators
 
@@ -22,25 +22,25 @@ def load_commands(self, _):
             "create",
             "ad_connector_create",
             supports_no_wait=False,
-            validator=validators.validate_mutually_exclusive_direct_indirect_args,
+            validator=validators.validate_create,
         )
         g.command(
             "update",
             "ad_connector_update",
             supports_no_wait=False,
-            validator=validators.validate_mutually_exclusive_direct_indirect_args,
+            validator=validators.validate_update,
         )
 
         g.command(
             "show",
             "ad_connector_show",
             supports_no_wait=False,
-            validator=validators.validate_mutually_exclusive_direct_indirect_args,
+            validator=validators.validate_show,
         )
 
         g.command(
             "delete",
             "ad_connector_delete",
             supports_no_wait=False,
-            validator=validators.validate_mutually_exclusive_direct_indirect_args,
+            validator=validators.validate_delete,
         )

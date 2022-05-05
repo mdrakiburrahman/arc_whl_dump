@@ -7,12 +7,12 @@ RESOURCE_PROVIDER_NAMESPACE = "Microsoft.AzureArcData"
 Resource provider namespace
 """
 
-API_VERSION = "2021-11-01"
+API_VERSION = "2022-03-01-preview"
 """
 DataController and MIAA Resource provider API version
 """
 
-PG_API_VERSION = "2021-07-01-preview"
+PG_API_VERSION = API_VERSION
 """
 Postgres Resource provider API version
 """

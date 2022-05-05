@@ -24,7 +24,7 @@ class ARMTemplate(object):
     EXT_TAG_MAP = dict_to_dot_notation(
         {
             "ARC_DATASERVICES_EXTENSION_RELEASE_TRAIN": "stable",
-            "ARC_DATASERVICES_EXTENSION_VERSION": "1.1.19091004",
+            "ARC_DATASERVICES_EXTENSION_VERSION": "1.2.19481002",
         }
     )
 
@@ -42,11 +42,13 @@ class ARMTemplate(object):
         cluster_name = properties.get("cluster_name")
         custom_location = properties.get("custom_location")
         namespace = properties.get("namespace")
+        resource_group = properties.get("resource_group")
+        extension_name = self.get_extension_name(cluster_name, resource_group)
         resources = self._resources(
             namespace,
             custom_location,
             cluster_name,
-            properties.get("resource_group"),
+            resource_group,
         )
 
         arm = json.loads(
@@ -60,10 +62,10 @@ class ARMTemplate(object):
                 docker_password=env_var_overrides.docker_password,
                 cluster=cluster_name,
                 namespace=namespace,
-                custom_location=custom_location,
-                resource_name=custom_location + "-ext",  # extension name
+                resource_name=extension_name or f"{custom_location}-ext",
                 resource_name_1=uuid.uuid4(),  # role1 name
                 resource_name_2=uuid.uuid4(),  # role2 name
+                custom_location=custom_location,
             )
         )
 
@@ -126,6 +128,16 @@ class ARMTemplate(object):
         )
 
         return resources
+
+    def get_extension_name(self, cluster_name, resource_group):
+        extension = self._dc_client.get_extensions(cluster_name, resource_group)
+        exts = [] if len(extension["value"]) == 0 else extension["value"]
+        for ext in exts:
+            logger.debug(ext)
+            if ext["type"] == "Microsoft.KubernetesConfiguration/extensions":
+                return ext["name"]
+
+        return None
 
     def _environment_variable_overrides(self):
         # -- docker env overrides --

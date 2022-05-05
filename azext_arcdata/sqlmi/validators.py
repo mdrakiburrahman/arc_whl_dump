@@ -4,6 +4,7 @@
 # license information.
 # ------------------------------------------------------------------------------
 
+from azext_arcdata.ad_connector.validators import _validate_domain_name
 import azext_arcdata.core.common_validators as validators
 
 
@@ -38,6 +39,27 @@ def validate_create(namespace):
 
         if direct_only:
             raise ValueError(msg.format(args=", ".join(direct_only)))
+
+    # -- validate active directory args if provided -- #
+    if (
+        namespace.ad_connector_name
+        or namespace.ad_account_name
+        or namespace.keytab_secret
+    ):
+        if not namespace.ad_connector_name:
+            raise ValueError(
+                "To enable Active Directory (AD) authentication, the resource name of the AD connector is required."
+            )
+        if not namespace.ad_account_name:
+            raise ValueError(
+                "The Active Directory account name for this Arc-enabled SQL Managed Instance is missing or invalid."
+            )
+
+        _validate_dns_service(
+            name=namespace.primary_dns_name,
+            port=namespace.primary_port_number,
+            type="primary",
+        )
 
 
 def validate_delete(namespace):
@@ -74,3 +96,19 @@ def validate_update(namespace):
     validators.validate_mutually_exclusive_direct_indirect(
         namespace, required_direct=required_for_direct, direct_only=direct_only
     )
+
+
+def _validate_dns_service(name="", port=0, type="primary"):
+    if not _validate_domain_name(name):
+        raise ValueError(
+            "The {0} DNS service name '{1}' is invalid.".format(type, name)
+        )
+
+    try:
+        port = int(port)
+        assert 0 <= port <= 65535
+        return True
+    except:
+        raise ValueError(
+            "The {0} DNS service port '{1}' is invalid.".format(type, port)
+        )

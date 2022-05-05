@@ -48,6 +48,8 @@ def beget_service(az_cli):
         "arcdata dc": ArmDataControllerServiceProxy,
         "arcdata dc --use-k8s": KubernetesDataControllerServiceProxy,
         "arcdata dc noopt": NoOptDataControllerServiceProxy,
+        "arcdata ad-connector": ArmActiveDirectoryConnectorServiceProxy,
+        "arcdata ad-connector --use-k8s": KubernetesActiveDirectoryConnectorServiceProxy,
         "sql mi-arc": ArmManagedInstanceServiceProxy,
         "sql mi-arc --use-k8s": KubernetesManagedInstanceServiceProxy,
         "sql midb-arc": ArmManagedInstanceServiceProxy,
@@ -110,6 +112,7 @@ class BaseServiceProxy(object):
             "SqlManagedInstanceRestoreTask": dc_constants.SQLMI_RESTORE_TASK_SPEC,
             "ExportTask": dc_constants.EXPORT_TASK_SPEC,
             "FailoverGroup": dc_constants.FOG_SPEC,
+            "ActiveDirectoryConnector": dc_constants.AD_CONNECTOR_SPEC,
             "Monitor": dc_constants.MONITOR_SPEC,
             "DataController": dc_constants.DATA_CONTROLLER_SPEC,
         }
@@ -185,6 +188,23 @@ class NoOptDataControllerServiceProxy(BaseServiceProxy):
     def __init__(self, *args, **kwargs):
         super(NoOptDataControllerServiceProxy, self).__init__("dc")
 
+    @staticmethod
+    def export_upload_log_and_metrics(command_value_object: tuple):
+        from azext_arcdata.arm_sdk.client import ArmClient
+
+        # TODO: build credentials here rather than deep into this call stack
+        class NoOptCred(object):
+            def get_token(self):
+                class NoOptAccessToken(object):
+                    token = "noopt"
+
+                return NoOptAccessToken()
+
+        subscription = "noopt"
+        arm_client = ArmClient(NoOptCred(), subscription)
+
+        arm_client.export_upload_log_and_metrics_dc(command_value_object.path)
+
 
 # ============================================================================ #
 # ============================================================================ #
@@ -243,29 +263,22 @@ class ArmMixin(object):
             try:
                 profile = Profile(cli_ctx=az_cli.local_context.cli_ctx)
                 subscription = profile.get_subscription_id()
-            except:
-                subscription = None
+            except Exception:  # pylint:disable=broad-except
+                logger.debug("To not see this warning, first login to Azure.")
+                pass
         else:
             try:
                 profile = Profile(cli_ctx=az_cli.local_context.cli_ctx)
                 subscription = profile.get_subscription(
                     subscription=subscription
                 ).get("id")
-            except:
-                subscription = None
+            except Exception:  # pylint:disable=broad-except
                 logger.debug("To not see this warning, first login to Azure.")
-
-        if not subscription:
-            raise ValueError(
-                "No subscription found, first login to Azure:" "`az login`"
-            )
 
         logger.debug("Using subscription: %s", subscription)
 
         (credentials, _, _) = get_cli_profile().get_login_credentials()
-        from azext_arcdata.core.arcdata_cli_credentials import (
-            ArcDataCliCredential,
-        )
+        from azext_arcdata.core.identity import ArcDataCliCredential
 
         cred = ArcDataCliCredential(credentials)
 
@@ -381,18 +394,10 @@ class ArmDataControllerServiceProxy(BaseDataControllerServiceProxy, ArmMixin):
 
     def update(self, cvo: tuple):
         return self._arm_client.update_dc(
-            cvo.client,
             cvo.resource_group_name,
             cvo.name,
-            cvo.auto_upload_logs,
-            cvo.auto_upload_metrics,
-        )
-
-    def update_maintenance_window(self, cvo: tuple):
-        raise Exception(
-            "Updating basic maintenance windows is only available through "
-            "kubernetes directly,  please use the --use-k8s switch and run the "
-            "command again."
+            auto_upload_logs=cvo.auto_upload_logs,
+            auto_upload_metrics=cvo.auto_upload_metrics,
         )
 
     def delete(self, command_value_object: tuple):
@@ -531,7 +536,6 @@ class KubernetesDataControllerServiceProxy(
         Proxy call to pass the update command to the appropriate client.
         """
         return self._client.update(
-            client=cvo.client,
             namespace=cvo.namespace,
             maintenance_start=cvo.maintenance_start,
             maintenance_duration=cvo.maintenance_duration,
@@ -658,3 +662,136 @@ class ArmPostgresServiceProxy(BasePostgresServiceProxy):
 class KubernetesPostgresServiceProxy(BasePostgresServiceProxy, KubernetesMixin):
     def __init__(self, az_cli):
         super(KubernetesPostgresServiceProxy, self).__init__()
+
+
+# ============================================================================ #
+# ============================================================================ #
+# ============================================================================ #
+
+
+@add_metaclass(ABCMeta)
+class BaseActiveDirectoryConnectorServiceProxy(BaseServiceProxy):
+    def __init__(self):
+        super(BaseActiveDirectoryConnectorServiceProxy, self).__init__(
+            "ad_connector"
+        )
+
+    @abstractmethod
+    def create(self, cvo: tuple):
+        pass
+
+    @abstractmethod
+    def update(self, cvo: tuple):
+        pass
+
+    @abstractmethod
+    def show(self, cvo: tuple):
+        pass
+
+    @abstractmethod
+    def delete(self, cvo: tuple):
+        pass
+
+
+class KubernetesActiveDirectoryConnectorServiceProxy(
+    BaseActiveDirectoryConnectorServiceProxy, KubernetesMixin
+):
+    def __init__(self, az_cli):
+        from azext_arcdata.kubernetes_sdk.ad_connector.client import (
+            ActiveDirectoryConnectorClient,
+        )
+
+        self._client = ActiveDirectoryConnectorClient(self.stdout, self.stderr)
+        super(KubernetesActiveDirectoryConnectorServiceProxy, self).__init__()
+
+    def create(self, cvo: tuple):
+        """
+        Proxy call to pass the create command to the appropriate client.
+        """
+        return self._client.create(
+            name=cvo.name,
+            namespace=cvo.namespace or self.namespace,
+            realm=cvo.realm,
+            nameserver_addresses=cvo.nameserver_addresses,
+            account_provisioning=cvo.account_provisioning,
+            primary_domain_controller=cvo.primary_domain_controller,
+            secondary_domain_controllers=cvo.secondary_domain_controllers,
+            netbios_domain_name=cvo.netbios_domain_name,
+            dns_domain_name=cvo.dns_domain_name,
+            num_dns_replicas=cvo.num_dns_replicas,
+            prefer_k8s_dns=cvo.prefer_k8s_dns,
+            ou_distinguished_name=cvo.ou_distinguished_name,
+            domain_service_account_secret=cvo.domain_service_account_secret,
+        )
+
+    def update(self, cvo: tuple):
+        """
+        Proxy call to pass the update command to the appropriate client.
+        """
+        return self._client.update(
+            name=cvo.name,
+            namespace=cvo.namespace or self.namespace,
+            nameserver_addresses=cvo.nameserver_addresses,
+            primary_domain_controller=cvo.primary_domain_controller,
+            secondary_domain_controllers=cvo.secondary_domain_controllers,
+            num_dns_replicas=cvo.num_dns_replicas,
+            prefer_k8s_dns=cvo.prefer_k8s_dns,
+            domain_service_account_secret=cvo.domain_service_account_secret,
+        )
+
+    def show(self, cvo: tuple):
+        return self._client.show(cvo.name, cvo.namespace or self.namespace)
+
+    def delete(self, cvo: tuple):
+        return self._client.delete(cvo.name, cvo.namespace or self.namespace)
+
+
+class ArmActiveDirectoryConnectorServiceProxy(
+    BaseActiveDirectoryConnectorServiceProxy, ArmMixin
+):
+    def __init__(self, az_cli):
+        super(ArmActiveDirectoryConnectorServiceProxy, self).__init__()
+        self._arm_client = self.acquire_arm_client(az_cli)
+
+    def create(self, cvo: tuple):
+        return self._arm_client.create_ad_connector(
+            name=cvo.name,
+            realm=cvo.realm,
+            nameserver_addresses=cvo.nameserver_addresses,
+            account_provisioning=cvo.account_provisioning,
+            primary_domain_controller=cvo.primary_domain_controller,
+            secondary_domain_controllers=cvo.secondary_domain_controllers,
+            netbios_domain_name=cvo.netbios_domain_name,
+            dns_domain_name=cvo.dns_domain_name,
+            num_dns_replicas=cvo.num_dns_replicas,
+            prefer_k8s_dns=cvo.prefer_k8s_dns,
+            ou_distinguished_name=cvo.ou_distinguished_name,
+            data_controller_name=cvo.data_controller_name,
+            resource_group=cvo.resource_group,
+        )
+
+    def update(self, cvo: tuple):
+        return self._arm_client.update_ad_connector(
+            name=cvo.name,
+            nameserver_addresses=cvo.nameserver_addresses,
+            primary_domain_controller=cvo.primary_domain_controller,
+            secondary_domain_controllers=cvo.secondary_domain_controllers,
+            num_dns_replicas=cvo.num_dns_replicas,
+            prefer_k8s_dns=cvo.prefer_k8s_dns,
+            data_controller_name=cvo.data_controller_name,
+            resource_group=cvo.resource_group,
+        )
+
+    def show(self, cvo: tuple):
+        return self._arm_client.get_ad_connector(
+            name=cvo.name,
+            data_controller_name=cvo.data_controller_name,
+            resource_group=cvo.resource_group,
+        )
+
+    def delete(self, cvo: tuple):
+        return self._arm_client.delete_ad_connector(
+            name=cvo.name,
+            data_controller_name=cvo.data_controller_name,
+            resource_group=cvo.resource_group,
+        )

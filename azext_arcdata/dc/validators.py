@@ -10,7 +10,7 @@ from azure.cli.core.azclierror import (
     ValidationError,
 )
 import azext_arcdata.core.common_validators as validators
-from azext_arcdata.core.constants import DIRECT
+import os
 
 
 def force_indirect(namespace):
@@ -36,7 +36,6 @@ def validate_create(namespace):
     kubernetes_only = [
         "annotations",
         "labels",
-        "location",
         "logs_ui_private_key_file",
         "logs_ui_public_key_file",
         "metrics_ui_private_key_file",
@@ -121,3 +120,11 @@ def validate_upgrade(namespace):
     validators.validate_mutually_exclusive_direct_indirect(
         namespace, required_direct=required_for_direct
     )
+
+
+def validate_upload(namespace):
+    if not os.path.exists(namespace.path):
+        raise FileNotFoundError(
+            'Cannot find file: "{}". Please provide the correct file name '
+            "and try again".format(namespace.path)
+        )

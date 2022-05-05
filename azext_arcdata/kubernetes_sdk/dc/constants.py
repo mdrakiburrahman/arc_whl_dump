@@ -3,12 +3,14 @@
 # ------------------------------------------------------------------------------
 
 import os
+from azext_arcdata.ad_connector.constants import AD_CONNECTOR_SPEC
 
 from azext_arcdata.core.constants import (
     ARC_API_V1,
     ARC_API_V2,
     ARC_API_V3,
     ARC_API_V4,
+    ARC_API_V5
 )
 from azext_arcdata.postgres.constants import POSTGRES_SPEC
 from azext_arcdata.sqlmi.constants import (
@@ -450,6 +452,7 @@ SPEC_FILE_DICT = {
     "SqlManagedInstanceRestoreTask": SQLMI_RESTORE_TASK_SPEC,
     "ExportTask": EXPORT_TASK_SPEC,
     "FailoverGroup": FOG_SPEC,
+    "ActiveDirectoryConnector": AD_CONNECTOR_SPEC,
     "Monitor": MONITOR_SPEC,
     "DataController": DATA_CONTROLLER_SPEC,
 }
@@ -459,6 +462,7 @@ CRD_SUPPORTED_IMAGE_VERSIONS = {
     ARC_API_V2: ["v1.1.0", "v1.2.0", "v1.3.0"],
     ARC_API_V3: ["v1.4.0", "v1.4.1"],
     ARC_API_V4: ["v1.5.0"],
+    ARC_API_V5: ["v1.6.0",]
 }
 
 RESOURCE_KIND_DATA_CONTROLLER = "dataController"

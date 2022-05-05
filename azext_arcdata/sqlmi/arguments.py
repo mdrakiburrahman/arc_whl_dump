@@ -307,18 +307,11 @@ def load_arguments(self, _):
             "resource should be added.",
         )
         # -- Active Directory --
-        """
         c.argument(
             "ad_connector_name",
             options_list=["--ad-connector-name"],
             arg_group=CLI_ARG_GROUP_AD_TEXT,
             help="The name of the Active Directory Connector. This parameter indicates an intent to deploy with AD support.",
-        )
-        c.argument(
-            "ad_connector_namespace",
-            options_list=["--ad-connector-namespace"],
-            arg_group=CLI_ARG_GROUP_AD_TEXT,
-            help="The Kubernetes namespace where the Active Directory Connector is deployed.",
         )
         c.argument(
             "ad_account_name",
@@ -344,19 +337,18 @@ def load_arguments(self, _):
             arg_group=CLI_ARG_GROUP_AD_TEXT,
             help="The port number on which the primary DNS service is exposed to the end-users (e.g. 31433).",
         )
-        c.argument(
-            "secondary_dns_name",
-            options_list=["--secondary-dns-name"],
-            arg_group=CLI_ARG_GROUP_AD_TEXT,
-            help="The secondary service DNS name exposed to the end-users to connect to this Arc-enabled SQL Managed Instance (e.g. sqlinstancename2.contoso.com).",
-        )
-        c.argument(
-            "secondary_port_number",
-            options_list=["--secondary-port-number"],
-            arg_group=CLI_ARG_GROUP_AD_TEXT,
-            help="The port number on which the secondary DNS service is exposed to the end-users (e.g. 31444).",
-        )
-        """
+        # c.argument(
+        #     "secondary_dns_name",
+        #     options_list=["--secondary-dns-name"],
+        #     arg_group=CLI_ARG_GROUP_AD_TEXT,
+        #     help="The secondary service DNS name exposed to the end-users to connect to this Arc-enabled SQL Managed Instance (e.g. sqlinstancename2.contoso.com).",
+        # )
+        # c.argument(
+        #     "secondary_port_number",
+        #     options_list=["--secondary-port-number"],
+        #     arg_group=CLI_ARG_GROUP_AD_TEXT,
+        #     help="The port number on which the secondary DNS service is exposed to the end-users (e.g. 31444).",
+        # )
 
     with ArgumentsContext(self, "sql mi-arc upgrade") as c:
         c.argument(
@@ -609,14 +601,12 @@ def load_arguments(self, _):
             "resource should be updated.",
         )
         # -- Active Directory --
-        """
         c.argument(
             "keytab_secret",
             options_list=["--keytab-secret"],
             arg_group=CLI_ARG_GROUP_AD_TEXT,
             help="The name of the Kubernetes secret that contains the keytab file for this Arc-enabled SQL Managed Instance.",
         )
-        """
 
     with ArgumentsContext(self, "sql mi-arc edit") as c:
         c.argument(
@@ -1003,7 +993,7 @@ def load_arguments(self, _):
         c.argument(
             "name",
             options_list=["--name", "-n"],
-            help="The name of the distributed availability group resource.",
+            help="The name of the failover group resource.",
         )
         c.argument(
             "shared_name",
@@ -1033,7 +1023,7 @@ def load_arguments(self, _):
             "partner_mirroring_url",
             options_list=["--partner-mirroring-url", "-u"],
             help="The mirroring endpoint URL of the partner SQL managed "
-            "instance or availability group on remote SQL instance.",
+            "instance.",
         )
         c.argument(
             "partner_mirroring_cert_file",
@@ -1047,7 +1037,7 @@ def load_arguments(self, _):
             "namespace",
             options_list=["--k8s-namespace", "-k"],
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-            help="Namespace where the SQL managed instance is to be deployed. "
+            help="Namespace where the failover group is to be deployed. "
             "If no namespace is specified, then the namespace defined "
             "in the kubeconfig will be used.",
         )
@@ -1075,7 +1065,7 @@ def load_arguments(self, _):
         c.argument(
             "namespace",
             options_list=["--k8s-namespace", "-k"],
-            help="Namespace where the SQL managed instance exists. "
+            help="Namespace where the failover group exists. "
             "If no namespace is specified, then the namespace defined "
             "in the kubeconfig will be used.",
         )
@@ -1097,7 +1087,7 @@ def load_arguments(self, _):
             "namespace",
             options_list=["--k8s-namespace", "-k"],
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-            help="Namespace where the SQL managed instance is to be deployed. "
+            help="Namespace where the failover group is deployed. "
             "If no namespace is specified, then the namespace defined "
             "in the kubeconfig will be used.",
         )
@@ -1120,7 +1110,7 @@ def load_arguments(self, _):
             "namespace",
             options_list=["--k8s-namespace", "-k"],
             arg_group=CLI_ARG_GROUP_INDIRECT_TEXT,
-            help="Namespace where the SQL managed instance is to be deployed. "
+            help="Namespace where the failover group is to be deployed. "
             "If no namespace is specified, then the namespace defined "
             "in the kubeconfig will be used.",
         )

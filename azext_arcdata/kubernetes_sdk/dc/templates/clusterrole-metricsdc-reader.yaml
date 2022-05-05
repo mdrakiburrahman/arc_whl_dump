@@ -4,7 +4,7 @@ metadata:
   name: {{ model }}
 rules:
 - apiGroups:
-  - '*'
+  - ''
   resources:
   - pods
   - nodes/stats

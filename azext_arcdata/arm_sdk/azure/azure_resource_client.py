@@ -3,12 +3,11 @@
 # Licensed under the MIT License. See License.txt in the project root for
 # license information.
 # ------------------------------------------------------------------------------
+
 from azure.mgmt.authorization import AuthorizationManagementClient
 from azure.common.credentials import get_cli_profile
 from msrestazure.azure_exceptions import CloudError
 from msrestazure.tools import is_valid_resource_id, parse_resource_id
-
-from azure.cli.core.azclierror import ValidationError
 
 from azext_arcdata.arm_sdk.azure.constants import (
     API_VERSION,
@@ -24,7 +23,7 @@ from azure.cli.core.azclierror import (
     ValidationError,
 )
 from azure.core.exceptions import HttpResponseError
-from azure.identity._credentials.azure_cli import AzureCliCredential
+from azext_arcdata.core.identity import ArcDataCliCredential
 from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.extendedlocation import CustomLocations
 from . import constants as azure_constants
@@ -34,13 +33,11 @@ from azext_arcdata.arm_sdk.azure.constants import (
     INSTANCE_TYPE_POSTGRES,
     INSTANCE_TYPE_SQL,
 )
-
-from azext_arcdata.arm_sdk.dc.export_util import (
+from azext_arcdata.arm_sdk.azure.export_util import (
     format_sqlmi_license_type_for_azure,
     format_sqlmi_tier_for_azure,
+    get_log_workspace_credentials_from_env,
 )
-from azext_arcdata.arm_sdk.dc import export_util
-
 from azext_arcdata.sqlmi.constants import SQL_MI_SKU_NAME_VCORE
 from azext_arcdata.kubernetes_sdk.client import http_status_codes
 from azext_arcdata.dc.exceptions import (
@@ -74,9 +71,71 @@ class AzureResourceClient(object):
     Azure Resource Client
     """
 
+    def __init__(self, subscription):
+        self._subscription = subscription
+
     @property
     def stderr(self):
         return OutputStream().stderr.write
+
+    @property
+    def stdout(self):
+        return OutputStream().stdout.write
+
+    def update_dc_resource(
+        self,
+        name,
+        resource_group_name,
+        auto_upload_logs=None,
+        auto_upload_metrics=None,
+    ):
+        """
+        Update data controller properties.
+        """
+
+        # get dc resource from Azure
+        dc_resource = self.get_generic_azure_resource(
+            resource_group_name=resource_group_name,
+            resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
+            resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
+            resource_name=name,
+            api_version=API_VERSION,
+        )
+
+        is_dc_directly_connected = self._is_dc_directly_connected(dc_resource)
+
+        if auto_upload_logs is not None:
+            if not is_dc_directly_connected:
+                raise ValidationError(
+                    "Automatic upload of logs is only supported for data "
+                    "controllers in direct connectivity mode"
+                )
+
+            self._update_auto_upload_logs(dc_resource, auto_upload_logs)
+
+        if auto_upload_metrics is not None:
+            if not is_dc_directly_connected:
+                raise ValidationError(
+                    "Automatic upload of metrics is only supported for data "
+                    "controllers in direct connectivity mode"
+                )
+
+            self._update_auto_upload_metrics(
+                dc_resource, resource_group_name, auto_upload_metrics
+            )
+
+        # update dc Azure resource
+        response = self.create_or_update_generic_azure_resource(
+            resource_group_name=resource_group_name,
+            resource_provider_namespace=RESOURCE_PROVIDER_NAMESPACE,
+            resource_type=INSTANCE_TYPE_DATA_CONTROLLER,
+            resource_name=name,
+            api_version=API_VERSION,
+            parameters=dc_resource,
+            wait_for_response=False,
+        )
+
+        return response
 
     def create_azure_resource(
         self,
@@ -477,7 +536,6 @@ class AzureResourceClient(object):
 
     def get_generic_azure_resource(
         self,
-        subscription,
         resource_provider_namespace,
         resource_type,
         resource_group_name,
@@ -485,10 +543,18 @@ class AzureResourceClient(object):
         api_version,
     ):
         """
-        Get a generic azure resource using AzureCliCredential and ResourceManagementClient
+        Get a generic azure resource using ArcDataCliCredential and
+        ResourceManagementClient
         """
 
-        arm_id = f"/subscriptions/{subscription}/resourcegroups/{resource_group_name}/providers/{resource_provider_namespace}/{resource_type}/{resource_name}"
+        subscription = self._subscription
+
+        arm_id = (
+            f"/subscriptions/{subscription}"
+            f"/resourcegroups/{resource_group_name}"
+            f"/providers/{resource_provider_namespace}"
+            f"/{resource_type}/{resource_name}"
+        )
         resource = self.get_generic_azure_resource_by_id(arm_id, api_version)
 
         return resource
@@ -499,40 +565,47 @@ class AzureResourceClient(object):
         api_version,
     ):
         """
-        Get a generic azure resource using AzureCliCredential and ResourceManagementClient
+        Get a generic azure resource using ArcDataCliCredential and
+        ResourceManagementClient
         """
 
         if not is_valid_resource_id(resource_id):
             raise ValidationError(
-                f"Unable to get Azure resource. Invalid resource id: '{resource_id}'"
+                f"Unable to get Azure resource. Invalid resource id: "
+                f"'{resource_id}'"
             )
 
         parsed_id = parse_resource_id(resource_id)
 
-        credential = AzureCliCredential()
+        credential = ArcDataCliCredential()
+
         resource_client = ResourceManagementClient(
             credential, parsed_id["subscription"]
         )
 
         log.debug(
-            f"Getting Azure resource: '{resource_id}', api version: '{api_version}'"
+            f"Getting Azure resource: '{resource_id}', api version: "
+            f"'{api_version}'"
         )
+
         resource = resource_client.resources.get_by_id(
             resource_id, api_version=api_version
         )
 
         return resource
 
+    @staticmethod
     def get_first_extension_id_from_custom_location(
-        self,
         custom_location_id,
         extension_type,
     ):
         """
-        Get the first extension id match (given an extension type) from the custom location.
+        Get the first extension id match (given an extension type) from the
+        custom location.
 
         :param custom_location_id: The custom location ARM id.
-        :param extension_type: The extension type (e.g 'microsoft.arcdataservices').
+        :param extension_type: The extension type
+              (e.g 'microsoft.arcdataservices').
         :returns: The first extension id matching the extension type.
         """
 
@@ -541,7 +614,7 @@ class AzureResourceClient(object):
         resource_name = arm_id["resource_name"]
         subscription = arm_id["subscription"]
 
-        credential = AzureCliCredential()
+        credential = ArcDataCliCredential()
         client = CustomLocations(credential, subscription)
         enabled_resource_types = (
             client.custom_locations.list_enabled_resource_types(
@@ -551,19 +624,23 @@ class AzureResourceClient(object):
         )
 
         log.debug(
-            f"Getting extension of type '{extension_type}' from custom location '{custom_location_id}'"
+            f"Getting extension of type '{extension_type}' from custom "
+            f"location '{custom_location_id}'"
         )
 
         for enabled_resource_type in enabled_resource_types:
             et = enabled_resource_type.extension_type
             if et.lower() == extension_type.lower():
                 log.debug(
-                    f"Found extension id ({enabled_resource_type.cluster_extension_id}) for custom location ({custom_location_id})."
+                    f"Found extension id "
+                    f"({enabled_resource_type.cluster_extension_id}) for "
+                    f"custom location ({custom_location_id})."
                 )
                 return enabled_resource_type.cluster_extension_id
 
         log.warning(
-            f"Extension of type '{extension_type}'' not found in custom location '{custom_location_id}'"
+            f"Extension of type '{extension_type}'' not found in custom "
+            f"location '{custom_location_id}'"
         )
 
     def get_bootstrapper_extension_id_from_custom_location(
@@ -588,7 +665,8 @@ class AzureResourceClient(object):
 
         if not extension_id:
             raise ResourceNotFoundError(
-                "Unable to find bootstrapper extension resource for custom location '{custom_location_id}'"
+                "Unable to find bootstrapper extension resource for custom "
+                "location '{custom_location_id}'"
             )
 
         return extension_id
@@ -609,7 +687,8 @@ class AzureResourceClient(object):
 
     def get_extension_identity(self, custom_location_id):
         """
-        Given a custom location id, get the principal id of the bootstrapper's identity.
+        Given a custom location id, get the principal id of the bootstrapper's
+        identity.
         """
 
         log.debug(f"Data controller's custom location id: {custom_location_id}")
@@ -626,7 +705,6 @@ class AzureResourceClient(object):
 
     def create_or_update_generic_azure_resource(
         self,
-        subscription,
         resource_provider_namespace,
         resource_type,
         resource_group_name,
@@ -637,12 +715,19 @@ class AzureResourceClient(object):
         timeout=None,
     ):
         """
-        Create or update a generic azure resource using AzureCliCredential and ResourceManagementClient
+        Create or update a generic azure resource using ArcDataCliCredential and
+        ResourceManagementClient
         """
+        subscription = self._subscription
 
-        credential = AzureCliCredential()
+        credential = ArcDataCliCredential()
         resource_client = ResourceManagementClient(credential, subscription)
-        arm_id = f"/subscriptions/{subscription}/resourcegroups/{resource_group_name}/providers/{resource_provider_namespace}/{resource_type}/{resource_name}"
+        arm_id = (
+            f"/subscriptions/{subscription}"
+            f"/resourcegroups/{resource_group_name}"
+            f"/providers/{resource_provider_namespace}"
+            f"/{resource_type}/{resource_name}"
+        )
 
         log.debug(f"Create or update azure resource: {arm_id}")
 
@@ -671,15 +756,88 @@ class AzureResourceClient(object):
 
         except HttpResponseError as ex:
             raise AzureResponseError(
-                f"Failed creating or updating Azure resource ({arm_id}).{os.linesep}{ex.message}"
+                f"Failed creating or updating Azure resource "
+                f"({arm_id}).{os.linesep}{ex.message}"
             ) from ex
         except Exception as ex:
             raise AzureResponseError(
-                f"Failed creating or updating Azure resource ({arm_id}).{os.linesep}{ex}"
+                f"Failed creating or updating Azure resource "
+                f"({arm_id}).{os.linesep}{ex}"
             ) from ex
 
-    def has_role_assignment(
+    def _update_auto_upload_metrics(
+        self, dc, resource_group_name, auto_upload_metrics
+    ):
+        """
+        Update auto upload metrics property. This includes creating the necessary
+        role assignments if needed.
+        :param dc: The data controller. The updated property is changed on this
+                object.
+        :param resource_group_name: The data controller's resource group name.
+        :param auto_upload_metrics: "true"/"false" (string, not boolean) indicating
+        whether or not to enable auto upload.
+        """
+
+        if auto_upload_metrics == "true":
+            self.assign_metrics_role_if_missing(
+                dc.extended_location.name,
+                resource_group_name,
+            )
+
+        dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
+            "autoUploadMetrics"
+        ] = auto_upload_metrics
+
+    def assign_metrics_role_if_missing(
         self,
+        custom_location_id,
+        resource_group_name,
+    ):
+        """
+        Assign metrics publisher role to the extension identity.
+        :param custom_location_id: Assign the role to the bootstrapper extension
+            on this custom location.
+        :param resource_group_name: The resource group name.
+
+        """
+        metrics_role_description = ROLE_DESCRIPTIONS[
+            MONITORING_METRICS_PUBLISHER_ROLE_ID
+        ]
+
+        extension_identity_principal_id = self.get_extension_identity(
+            custom_location_id
+        )
+
+        log.debug(
+            f"Bootstrapper extension identity (principal id): "
+            f"'{extension_identity_principal_id}'"
+        )
+
+        if self.has_role_assignment(
+            extension_identity_principal_id,
+            resource_group_name,
+            MONITORING_METRICS_PUBLISHER_ROLE_ID,
+            metrics_role_description,
+        ):
+            log.debug(
+                "Bootstrapper extension identity already has metrics publisher "
+                "role."
+            )
+        else:
+            log.debug(
+                f"Assigning '{metrics_role_description}' role to bootstrapper "
+                f"extension identity..."
+            )
+
+            self.create_role_assignment(
+                extension_identity_principal_id,
+                resource_group_name,
+                MONITORING_METRICS_PUBLISHER_ROLE_ID,
+                metrics_role_description,
+            )
+
+    @staticmethod
+    def has_role_assignment(
         identity_principal_id,
         resource_group_name,
         role_id,
@@ -687,7 +845,8 @@ class AzureResourceClient(object):
     ):
 
         """
-        Check if a role (role_id) is assigned to identity_principal_id with resource group scope.
+        Check if a role (role_id) is assigned to identity_principal_id with
+        resource group scope.
         """
         (
             login_credentials,
@@ -700,7 +859,9 @@ class AzureResourceClient(object):
         )
 
         log.debug(
-            f"Checking if role id '{role_id}' ({role_description}) is assigned to principal id {identity_principal_id} at resource group ({resource_group_name}) scope"
+            f"Checking if role id '{role_id}' ({role_description}) is "
+            f"assigned to principal id {identity_principal_id} at resource "
+            f"group ({resource_group_name}) scope"
         )
 
         role_assignments = (
@@ -715,18 +876,24 @@ class AzureResourceClient(object):
 
             if role_definition_id.lower().endswith(role_id):
                 log.debug(
-                    f"Role assignment found. Role id '{role_id}' ({role_description}) is assigned to principal id {identity_principal_id} at resource group ({resource_group_name}) scope"
+                    f"Role assignment found. Role id '{role_id}' "
+                    f"({role_description}) is assigned to principal id "
+                    f"{identity_principal_id} at resource group "
+                    f"({resource_group_name}) scope"
                 )
                 return True
 
         log.debug(
-            f"Role assignment NOT found. Role id '{role_id}' ({role_description}) is NOT assigned to principal id {identity_principal_id} at resource group ({resource_group_name}) scope"
+            f"Role assignment NOT found. Role id '{role_id}' "
+            f"({role_description}) is NOT assigned to principal id "
+            f"{identity_principal_id} at resource group "
+            f"({resource_group_name}) scope"
         )
 
         return False
 
+    @staticmethod
     def create_role_assignment(
-        self,
         identity_principal_id,
         resource_group_name,
         role_id,
@@ -734,11 +901,14 @@ class AzureResourceClient(object):
     ):
         """
         Create a role assignment.
-        :param identity_principal_id: The identity principal we are assigning the role to.
-        :param resource_group_name: The resource group to scope the assignment to.
+        :param identity_principal_id: The identity principal we are assigning
+        the role to.
+        :param resource_group_name: The resource group to scope the assignment
+         to.
         :param role_id: The role id to assign.
         :param role_description: The role description.
-        :raises: AzureResponseError: If there is an error creating the role assignment.
+        :raises: AzureResponseError: If there is an error creating the role
+        assignment.
         """
 
         (
@@ -751,18 +921,26 @@ class AzureResourceClient(object):
             login_credentials, subscription
         )
 
-        scope = f"/subscriptions/{subscription}/resourceGroups/{resource_group_name}"
+        scope = (
+            f"/subscriptions/{subscription}"
+            f"/resourceGroups/{resource_group_name}"
+        )
         role_assignment_name = uuid.uuid4()
 
         params = {
             "properties": {
-                "roleDefinitionId": f"/subscriptions/{subscription}/providers/Microsoft.Authorization/roleDefinitions/{role_id}",
+                "roleDefinitionId": f"/subscriptions"
+                f"/{subscription}"
+                f"/providers/Microsoft.Authorization"
+                f"/roleDefinitions/{role_id}",
                 "principalId": identity_principal_id,
             }
         }
 
         log.debug(
-            f"Creating role assignment. Role assignment name: '{role_assignment_name}'', scope: '{scope}', role id: '{role_id}' ({role_description})"
+            f"Creating role assignment. Role assignment name: "
+            f"'{role_assignment_name}'', scope: '{scope}', role id: "
+            f"'{role_id}' ({role_description})"
         )
 
         try:
@@ -770,16 +948,21 @@ class AzureResourceClient(object):
                 scope, role_assignment_name, params
             )
         except CloudError as ex:
-            error_msg = f"Failed to create role assignment. Role id: '{role_id}' ({role_description}), scope: '{scope}', identity principal: {identity_principal_id}. Error: {ex}"
+            error_msg = (
+                f"Failed to create role assignment. Role id: "
+                f"'{role_id}' ({role_description}), scope: '{scope}', "
+                f"identity principal: {identity_principal_id}. "
+                f"Error: {ex}"
+            )
             raise AzureResponseError(error_msg) from ex
 
-    def update_auto_upload_logs(self, dc, auto_upload_logs, client):
-
+    @staticmethod
+    def _update_auto_upload_logs(dc, auto_upload_logs):
         """
         Update auto upload logs properties. This includes asking for the
         log analytics workspace id/key if needed.
-        :param dc: The data controller. The updated properties are changed on this
-                object.
+        :param dc: The data controller. The updated properties are changed on
+                   this object.
         :param auto_upload_logs: "true"/"false" (string, not boolean) indicating
         whether or not to enable auto upload.
         """
@@ -801,7 +984,7 @@ class AzureResourceClient(object):
         (
             workspace_id,
             workspace_shared_key,
-        ) = export_util._get_log_workspace_credentials_from_env(client)
+        ) = get_log_workspace_credentials_from_env()
 
         dc.properties["logAnalyticsWorkspaceConfig"][
             "workspaceId"
@@ -810,80 +993,13 @@ class AzureResourceClient(object):
             "primaryKey"
         ] = workspace_shared_key
 
-    def update_auto_upload_metrics(
-        self, dc, resource_group_name, auto_upload_metrics, client
-    ):
-        """
-        Update auto upload metrics property. This includes creating the necessary
-        role assignments if needed.
-        :param dc: The data controller. The updated property is changed on this
-                object.
-        :param resource_group_name: The data controller's resource group name.
-        :param auto_upload_metrics: "true"/"false" (string, not boolean) indicating
-        whether or not to enable auto upload.
-        """
-
-        if auto_upload_metrics == "true":
-            self.assign_metrics_role_if_missing(
-                dc.extended_location.name,
-                resource_group_name,
-                client.azure_resource_client,
-            )
-
-        dc.properties["k8sRaw"]["spec"]["settings"]["azure"][
-            "autoUploadMetrics"
-        ] = auto_upload_metrics
-
-    def assign_metrics_role_if_missing(
-        self, custom_location_id, resource_group_name, azure_resource_client
-    ):
-        """
-        Assign metrics publisher role to the extension identity.
-        :param custom_location_id: Assign the role to the bootstrapper extension
-            on this custom location.
-        :param resource_group_name: The resource group name.
-        :param azure_resource_client: Azure resource client used to assign the role.
-        """
-        metrics_role_description = ROLE_DESCRIPTIONS[
-            MONITORING_METRICS_PUBLISHER_ROLE_ID
-        ]
-
-        extension_identity_principal_id = (
-            azure_resource_client.get_extension_identity(custom_location_id)
-        )
-
-        log.debug(
-            f"Bootstrapper extension identity (principal id): "
-            f"'{extension_identity_principal_id}'"
-        )
-
-        if azure_resource_client.has_role_assignment(
-            extension_identity_principal_id,
-            resource_group_name,
-            MONITORING_METRICS_PUBLISHER_ROLE_ID,
-            metrics_role_description,
-        ):
-            log.debug(
-                "Bootstrapper extension identity already has metrics publisher role."
-            )
-        else:
-            log.debug(
-                f"Assigning '{metrics_role_description}' role to bootstrapper "
-                f"extension identity..."
-            )
-
-            azure_resource_client.create_role_assignment(
-                extension_identity_principal_id,
-                resource_group_name,
-                MONITORING_METRICS_PUBLISHER_ROLE_ID,
-                metrics_role_description,
-            )
-
-    def is_dc_directly_connected(self, dc):
+    @staticmethod
+    def _is_dc_directly_connected(dc):
         """
         Return True if dc is directly connected mode. False otherwise.
-        (this is determined by checking at the extended_location, "ConnectionMode"
-        property is ignored, this is the same logic performed in the RP)
+        (this is determined by checking at the extended_location,
+        "ConnectionMode" property is ignored, this is the same logic performed
+        in the RP)
         """
 
         if dc.extended_location is None:
@@ -893,3 +1009,311 @@ class AzureResourceClient(object):
             return False
 
         return True
+
+    def upload_dc_resource(self, path):
+        """
+        Upload data file exported from a data controller to Azure.
+        """
+
+        import uuid
+        from datetime import datetime
+        from jsonschema import validate
+        from azext_arcdata.core.serialization import Sanitizer
+        from azext_arcdata.dc.constants import LAST_USAGE_UPLOAD_FLAG
+        from azext_arcdata.arm_sdk.azure.export_util import (
+            ExportType,
+            logs_upload,
+            metrics_upload,
+            EXPORT_DATA_JSON_SCHEMA,
+            EXPORT_FILE_DICT_KEY,
+            EXPORT_SANITIZERS,
+            get_export_timestamp_from_file,
+            set_azure_upload_status,
+            update_upload_status_file,
+            update_azure_upload_status,
+        )
+
+        log.debug("Uploading file: '%s'", path)
+        with open(path, encoding="utf-8") as input_file:
+            data = json.load(input_file)
+            data = Sanitizer.sanitize_object(data, EXPORT_SANITIZERS)
+            validate(data, EXPORT_DATA_JSON_SCHEMA)
+
+        # Check expected properties
+        #
+        for expected_key in EXPORT_FILE_DICT_KEY:
+            if expected_key not in data:
+                raise ValueError(
+                    '"{}" is not found in the input file "{}".'.format(
+                        expected_key, path
+                    )
+                )
+
+        export_type = data["exportType"]
+
+        if not ExportType.has_value(export_type):
+            raise ValueError(
+                '"{}" is not a supported type. Please check your input file '
+                '"{}".'.format(export_type, path)
+            )
+
+        # Create/Update shadow resource for data controller
+        #
+        data_controller = data["dataController"]
+
+        try:
+            data_controller_azure = self._get_dc_azure_resource(data_controller)
+        except Exception as e:
+            raise Exception(
+                "Upload failed. Unable to read data controller resource from "
+                "Azure"
+            )
+
+        set_azure_upload_status(data_controller, data_controller_azure)
+        self._create_dc_azure_resource(data_controller)
+
+        # Delete shadow resources for resource instances deleted from the
+        # cluster in k8s
+        #
+        deleted = dict()
+
+        for instance in data["deletedInstances"]:
+            instance_key = "{}/{}.{}".format(
+                instance["kind"],
+                instance["instanceName"],
+                instance["instanceNamespace"],
+            )
+
+            if instance_key not in deleted.keys():
+                try:
+                    self._delete_azure_resource(instance, data_controller)
+                    deleted[instance_key] = True
+                except Exception as e:
+                    self.stdout(
+                        'Failed to delete Azure resource for "{}" in "{}".'.format(
+                            instance["instanceName"],
+                            instance["instanceNamespace"],
+                        )
+                    )
+                    self.stderr(e)
+                    continue
+
+        # Create/Update shadow resources for resource instances still active in
+        # the cluster in k8s
+        #
+        for instance in data["instances"]:
+            self._create_azure_resource(instance, data_controller)
+
+        data_timestamp = datetime.strptime(
+            data["dataTimestamp"], "%Y-%m-%dT%H:%M:%S.%fZ"
+        )
+
+        # Upload metrics, logs or usage
+        #
+        try:
+            if export_type == ExportType.metrics.value:
+                metrics_upload(data["data"])
+            elif export_type == ExportType.logs.value:
+                (
+                    customer_id,
+                    shared_key,
+                ) = get_log_workspace_credentials_from_env()
+                self.stdout('Log Analytics workspace: "{}"'.format(customer_id))
+                for file in data["data"]:
+                    with open(file, encoding="utf-8") as input_file:
+                        data = json.load(input_file)
+                    logs_upload(data["data"], customer_id, shared_key)
+            elif export_type == "usage":
+                if data_controller:
+                    self.stdout("\n")
+                    self.stdout("Start uploading usage...")
+                    correlation_vector = str(uuid.uuid4())
+                    for usage in data["data"]:
+                        self._upload_usages_dps(
+                            data_controller,
+                            usage,
+                            data["dataTimestamp"],
+                            correlation_vector,
+                        )
+
+                    if (
+                        LAST_USAGE_UPLOAD_FLAG in data
+                        and data[LAST_USAGE_UPLOAD_FLAG]
+                    ):
+                        # Delete DC shadow resource to close out billing
+                        #
+                        self._delete_azure_resource(
+                            resource=data_controller,
+                            data_controller=data_controller,
+                        )
+
+                    self.stdout("Usage upload is done.")
+                else:
+                    self.stdout(
+                        "No usage has been reported. Please wait for 24 hours "
+                        "if you just deployed the Azure Arc enabled data "
+                        "services."
+                    )
+            else:
+                raise ValueError(
+                    '"{}" is not a supported type. Please check your input'
+                    ' file "{}".'.format(export_type, path)
+                )
+        except Exception as ex:
+            update_azure_upload_status(
+                data_controller, export_type, data_timestamp, ex
+            )
+            self._create_dc_azure_resource(data_controller)
+            raise
+
+        update_azure_upload_status(
+            data_controller, export_type, data_timestamp, None
+        )
+        self._create_dc_azure_resource(data_controller)
+
+        # Update watermark after upload succeed for all three types of data
+        timestamp_from_status_file = get_export_timestamp_from_file(export_type)
+        timestamp_from_export_file = data_timestamp
+
+        if timestamp_from_status_file < timestamp_from_export_file:
+            update_upload_status_file(
+                export_type,
+                data_timestamp=timestamp_from_export_file.isoformat(
+                    sep=" ", timespec="milliseconds"
+                ),
+            )
+
+    def _get_dc_azure_resource(self, data_controller):
+        """
+        Get a shadow resource for the data controller.
+        """
+        response = retry(
+            lambda: self.get_azure_resource(
+                resource_name=data_controller["instanceName"],
+                instance_type="dataControllers",
+                subscription_id=data_controller["subscriptionId"],
+                resource_group_name=data_controller["resourceGroupName"],
+            ),
+            retry_count=CONNECTION_RETRY_ATTEMPTS,
+            retry_delay=RETRY_INTERVAL,
+            retry_method="get Azure data controller",
+            retry_on_exceptions=(
+                ConnectionError,
+                NewConnectionError,
+                MaxRetryError,
+            ),
+        )
+
+        # no data controller was returned
+        if response is True:
+            return None
+
+        return response
+
+    def _create_dc_azure_resource(self, data_controller):
+        """
+        Create a shadow resource for the data controller.
+        """
+        retry(
+            lambda: self.create_azure_data_controller(
+                uid=data_controller["k8sRaw"]["metadata"]["uid"],
+                resource_name=data_controller["instanceName"],
+                subscription_id=data_controller["subscriptionId"],
+                resource_group_name=data_controller["resourceGroupName"],
+                location=data_controller["location"],
+                public_key=data_controller["publicKey"],
+                extended_properties={
+                    "k8sRaw": _.get(data_controller, "k8sRaw"),
+                    "infrastructure": _.get(data_controller, "infrastructure"),
+                },
+            ),
+            retry_count=CONNECTION_RETRY_ATTEMPTS,
+            retry_delay=RETRY_INTERVAL,
+            retry_method="create Azure data controller",
+            retry_on_exceptions=(
+                ConnectionError,
+                NewConnectionError,
+                MaxRetryError,
+            ),
+        )
+
+    def _create_azure_resource(self, resource, data_controller):
+        """
+        Create a shadow resource for custom resource.
+        """
+        retry(
+            lambda: self.create_azure_resource(
+                instance_type=azure_constants.RESOURCE_TYPE_FOR_KIND[
+                    resource["kind"]
+                ],
+                data_controller_name=data_controller["instanceName"],
+                resource_name=resource["instanceName"],
+                subscription_id=data_controller["subscriptionId"],
+                resource_group_name=data_controller["resourceGroupName"],
+                location=data_controller["location"],
+                extended_properties={"k8sRaw": _.get(resource, "k8sRaw")},
+            ),
+            retry_count=CONNECTION_RETRY_ATTEMPTS,
+            retry_delay=RETRY_INTERVAL,
+            retry_method="create Azure resource",
+            retry_on_exceptions=(
+                ConnectionError,
+                NewConnectionError,
+                MaxRetryError,
+            ),
+        )
+
+    def _delete_azure_resource(self, resource, data_controller):
+        """
+        Delete the shadow resource for custom resource.
+        """
+        resource_name = resource["instanceName"]
+        instance_type = azure_constants.RESOURCE_TYPE_FOR_KIND[resource["kind"]]
+        subscription_id = data_controller["subscriptionId"]
+        resource_group_name = data_controller["resourceGroupName"]
+
+        retry(
+            self.delete_azure_resource,
+            resource_name,
+            instance_type,
+            subscription_id,
+            resource_group_name,
+            retry_count=CONNECTION_RETRY_ATTEMPTS,
+            retry_delay=RETRY_INTERVAL,
+            retry_method="delete Azure resource",
+            retry_on_exceptions=(
+                ConnectionError,
+                NewConnectionError,
+                MaxRetryError,
+            ),
+        )
+
+    def _upload_usages_dps(
+        self, data_controller, usage, timestamp, correlation_vector
+    ):
+        import zlib
+        import base64
+        import json
+
+        uncompressed_usage = json.loads(
+            str(
+                zlib.decompress(
+                    base64.b64decode(usage["usages"]), -zlib.MAX_WBITS
+                ),
+                "utf-8",
+            )
+        )
+
+        return self.upload_usages_dps(
+            cluster_id=data_controller["k8sRaw"]["metadata"]["uid"],
+            correlation_vector=correlation_vector,
+            name=data_controller["instanceName"],
+            subscription_id=data_controller["subscriptionId"],
+            resource_group_name=data_controller["resourceGroupName"],
+            location=data_controller["location"],
+            connection_mode=data_controller["connectionMode"],
+            infrastructure=data_controller["infrastructure"],
+            timestamp=timestamp,
+            usages=uncompressed_usage,
+            signature=usage["signature"],
+        )

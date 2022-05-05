@@ -5,34 +5,19 @@
 # ------------------------------------------------------------------------------
 
 """Command definitions for `data control`."""
-import uuid
 
-from azure.cli.core.azclierror import ValidationError
-from azext_arcdata.dc.constants import LAST_USAGE_UPLOAD_FLAG
-from azext_arcdata.arm_sdk.dc.export_util import (
+from azext_arcdata.arm_sdk.azure.export_util import (
     ExportType,
-    logs_upload,
-    metrics_upload,
-    _get_log_workspace_credentials_from_env,
-    EXPORT_DATA_JSON_SCHEMA,
-    EXPORT_FILE_DICT_KEY,
-    EXPORT_SANITIZERS,
-    get_export_timestamp_from_file,
     check_prompt_export_output_file,
-    set_azure_upload_status,
-    update_upload_status_file,
-    update_azure_upload_status,
 )
-from azext_arcdata.core.serialization import Sanitizer
+
 from azext_arcdata.core.prompt import (
     prompt_for_input,
     prompt_for_choice,
     prompt_assert,
     prompt_y_n,
 )
-from azext_arcdata.core.arcdata_cli_credentials import ArcDataCliCredential
 from azext_arcdata.core.util import DeploymentConfigUtil
-from jsonschema import validate
 from knack.prompting import NoTTYException
 from knack.log import get_logger
 from knack.cli import CLIError
@@ -40,7 +25,6 @@ from colorama import Fore
 
 import json
 import os
-from msrestazure.tools import is_valid_resource_id
 import yaml
 import shutil
 
@@ -51,8 +35,8 @@ def dc_create(
     client,
     connectivity_mode,
     name,
-    # location,
     resource_group,
+    location=None,
     infrastructure=None,
     no_wait=False,
     path=None,
@@ -67,7 +51,6 @@ def dc_create(
     annotations=None,
     namespace=None,
     labels=None,
-    location=None,
     logs_ui_private_key_file=None,
     logs_ui_public_key_file=None,
     metrics_ui_private_key_file=None,
@@ -570,7 +553,7 @@ def arc_resource_kind_get(client, kind, dest="template"):
             or kind_lower_case not in local_spec_file_dict
         ):
             raise ValueError(
-                "Invalid input kind. Pleae check resource kind list."
+                "Invalid input kind. Please check resource kind list."
             )
 
         # crd in .yaml format and spec in .json format
@@ -595,168 +578,14 @@ def arc_resource_kind_get(client, kind, dest="template"):
         raise CLIError(e)
 
 
-##############################
-# Azure / indirect only
-##############################
-
-
 def dc_upload(client, path):
     """
-    Upload data file exported from a data controller to Azure.
+    Upload data file exported from a data controller to Azure (indirect only).
     """
-
-    import uuid
-    from datetime import datetime
-
     try:
-        if not os.path.exists(path):
-            raise FileNotFoundError(
-                'Cannot find file: "{}". Please provide the correct file name '
-                "and try again".format(path)
-            )
-
-        with open(path, encoding="utf-8") as input_file:
-            data = json.load(input_file)
-            data = Sanitizer.sanitize_object(data, EXPORT_SANITIZERS)
-
-            validate(data, EXPORT_DATA_JSON_SCHEMA)
+        cvo = client.args_to_command_value_object()
+        return client.services.dc.export_upload_log_and_metrics(cvo)
+    except ValueError as e:
+        raise CLIError(e)
     except Exception as e:
         raise CLIError(e)
-
-    # Check expected properties
-    #
-    for expected_key in EXPORT_FILE_DICT_KEY:
-        if expected_key not in data:
-            raise ValueError(
-                '"{}" is not found in the input file "{}".'.format(
-                    expected_key, path
-                )
-            )
-
-    export_type = data["exportType"]
-
-    if not ExportType.has_value(export_type):
-        raise ValueError(
-            '"{}" is not a supported type. Please check your input file '
-            '"{}".'.format(export_type, path)
-        )
-
-    # Create/Update shadow resource for data controller
-    #
-    data_controller = data["dataController"]
-
-    try:
-        data_controller_azure = client.get_dc_azure_resource(data_controller)
-    except Exception as e:
-        raise CLIError(
-            "Upload failed. Unable to read data controller resource from Azure"
-        ) from e
-
-    set_azure_upload_status(data_controller, data_controller_azure)
-    client.create_dc_azure_resource(data_controller)
-
-    # Delete shadow resources for resource instances deleted from the cluster
-    # in k8s
-    #
-    deleted = dict()
-
-    for instance in data["deletedInstances"]:
-        instance_key = "{}/{}.{}".format(
-            instance["kind"],
-            instance["instanceName"],
-            instance["instanceNamespace"],
-        )
-
-        if instance_key not in deleted.keys():
-            try:
-                client.delete_azure_resource(instance, data_controller)
-                deleted[instance_key] = True
-            except Exception as e:
-                client.stdout(
-                    'Failed to delete Azure resource for "{}" in "{}".'.format(
-                        instance["instanceName"], instance["instanceNamespace"]
-                    )
-                )
-                client.stderr(e)
-                continue
-
-    # Create/Update shadow resources for resource instances still active in
-    # the cluster in k8s
-    #
-    for instance in data["instances"]:
-        client.create_azure_resource(instance, data_controller)
-
-    data_timestamp = datetime.strptime(
-        data["dataTimestamp"], "%Y-%m-%dT%H:%M:%S.%fZ"
-    )
-
-    # Upload metrics, logs or usage
-    #
-    try:
-        if export_type == ExportType.metrics.value:
-            metrics_upload(data["data"])
-        elif export_type == ExportType.logs.value:
-            customer_id, shared_key = _get_log_workspace_credentials_from_env(
-                client
-            )
-            client.stdout('Log Analytics workspace: "{}"'.format(customer_id))
-            for file in data["data"]:
-                with open(file, encoding="utf-8") as input_file:
-                    data = json.load(input_file)
-                logs_upload(data["data"], customer_id, shared_key)
-        elif export_type == "usage":
-            if data_controller:
-                client.stdout("\n")
-                client.stdout("Start uploading usage...")
-                correlation_vector = str(uuid.uuid4())
-                for usage in data["data"]:
-                    client.upload_usages_dps(
-                        data_controller,
-                        usage,
-                        data["dataTimestamp"],
-                        correlation_vector,
-                    )
-
-                if (
-                    LAST_USAGE_UPLOAD_FLAG in data
-                    and data[LAST_USAGE_UPLOAD_FLAG]
-                ):
-                    # Delete DC shadow resource to close out billing
-                    #
-                    client.delete_azure_resource(
-                        resource=data_controller,
-                        data_controller=data_controller,
-                    )
-
-                client.stdout("Usage upload is done.")
-            else:
-                client.stdout(
-                    "No usage has been reported. Please wait for 24 hours if you "
-                    "just deployed the Azure Arc enabled data services."
-                )
-        else:
-            raise ValueError(
-                '"{}" is not a supported type. Please check your input file '
-                '"{}".'.format(export_type, path)
-            )
-    except Exception as ex:
-        update_azure_upload_status(
-            client, data_controller, export_type, data_timestamp, ex
-        )
-        raise
-
-    update_azure_upload_status(
-        client, data_controller, export_type, data_timestamp, None
-    )
-
-    # Update watermark after upload succeed for all three types of data
-    timestamp_from_status_file = get_export_timestamp_from_file(export_type)
-    timestamp_from_export_file = data_timestamp
-
-    if timestamp_from_status_file < timestamp_from_export_file:
-        update_upload_status_file(
-            export_type,
-            data_timestamp=timestamp_from_export_file.isoformat(
-                sep=" ", timespec="milliseconds"
-            ),
-        )

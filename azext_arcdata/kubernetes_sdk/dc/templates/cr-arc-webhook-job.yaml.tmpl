@@ -10,7 +10,7 @@ rules:
 - apiGroups: ["admissionregistration.k8s.io"]
   resources: ["mutatingwebhookconfigurations"]
   verbs: ["create"]
-- apiGroups: ["*"]
+- apiGroups: [""]
   resources: ["namespaces"]
   resourceNames: ["{{ model.namespace }}"]
   verbs: ["patch"]

@@ -17,25 +17,15 @@ from knack.cli import CLIError
 from knack.log import get_logger
 from six import add_metaclass
 
-__all__ = ["client", "CliClient"]
+__all__ = ["beget", "CliClient"]
 
 logger = get_logger(__name__)
 
 
-def beget_cli_client():
-    """
-    The factory function used to apply the common `CliClient` to a custom
-    commands's command group.
-    :return: A function.
-    """
+def beget(az_cli, kwargs):
+    """Client factory"""
+    return CliClient(az_cli, kwargs, check_namespace=None)
 
-    def beget(_):
-        return CliClient()
-
-    return beget
-
-
-client = beget_cli_client  # Export
 
 # ============================================================================ #
 # ============================================================================ #
@@ -105,6 +95,7 @@ class CliClient(BaseCliClient):
             from kubernetes.config.config_exception import ConfigException
 
             self._namespace = None
+            self._apis = type("", (object,), {"kubernetes": KubernetesClient()})
             if self._args.get("use_k8s"):
                 try:
                     namespace = self._args.get("namespace")
@@ -139,9 +130,6 @@ class CliClient(BaseCliClient):
                 )
 
                 self._namespace = namespace
-                self._apis = type(
-                    "", (object,), {"kubernetes": KubernetesClient()}
-                )
             ###############################################################
 
     @property

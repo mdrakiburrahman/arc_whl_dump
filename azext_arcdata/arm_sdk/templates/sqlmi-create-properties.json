@@ -73,8 +73,7 @@
                 },
                 "security": {
                     "adminLoginSecret": "",
-                    "serviceCertificateSecret": "",
-                    "securityserviceCertificateSecret": ""
+                    "serviceCertificateSecret": ""
                 },
                 "metadata": {
                     "namespace": "",

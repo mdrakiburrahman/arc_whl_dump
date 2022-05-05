@@ -27,8 +27,9 @@ helps[
             --name arcadc 
             --k8s-namespace arc 
             --realm CONTOSO.LOCAL 
+            --account-provisioning manual
             --primary-ad-dc-hostname azdc01.contoso.local 
-            --secondary-ad-dc-hostname "azdc02.contoso.local, azdc03.contoso.local" 
+            --secondary-ad-dc-hostnames "azdc02.contoso.local, azdc03.contoso.local" 
             --netbios-domain-name CONTOSO 
             --dns-domain-name contoso.local 
             --nameserver-addresses 10.10.10.11,10.10.10.12,10.10.10.13 

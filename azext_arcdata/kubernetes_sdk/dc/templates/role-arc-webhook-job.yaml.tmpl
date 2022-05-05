@@ -4,10 +4,10 @@ metadata:
   name: role-arc-webhook-job
   namespace: {{ model.namespace }}
 rules:
-- apiGroups: ["*"]
+- apiGroups: [""]
   resources: ["secrets"]
   verbs: ["create"]
-- apiGroups: ["*"]
+- apiGroups: [""]
   resources: ["secrets"]
   resourceNames: ["arc-webhook-secret"]
   verbs: ["get"]

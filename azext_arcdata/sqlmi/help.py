@@ -60,6 +60,13 @@ helps[
             az sql mi-arc create --name name --resource-group group 
             --location location --subscription subscription  
             --custom-location custom-location
+        - name: {ex4}
+          text: >
+            az sql mi-arc create --name contososqlmi --k8s-namespace arc
+            --ad-connector-name arcadc --ad-account-name arcuser
+            --keytab-secret arcuser-keytab-secret
+            --primary-dns-name contososqlmi-primary.contoso.local
+            --primary-port-number 8143 --use-k8s
 """.format(
     short="Create a SQL managed instance.",
     long="To set the password of the SQL managed instance, set the environment "
@@ -68,6 +75,7 @@ helps[
     ex2="Create an indirectly connected SQL managed instance with 3 replicas "
     "in HA scenario.",
     ex3="Create a directly connected SQL managed instance.",
+    ex4="Create an indirectly connected SQL managed instance with Active Directory authentication.",
 )
 
 # pylint: disable=line-too-long
@@ -336,17 +344,17 @@ helps[
           text: >
             {cmd}
 """.format(
-    short="Create a failover group custom resource",
-    long="Create a failover group custom resource to create a "
+    short="Create a failover group resource",
+    long="Create a failover group resource to create a "
     "distributed availability group ",
     cmd="az sql instance-failover-group-arc create --name fogCr1 --shared-name sharedName1 "
     "--mi sqlmi1 --role primary "
     "--partner-mi sqlmi2 "
     "--partner-mirroring-url partnerPrimary:5022 "
     "--partner-mirroring-cert-file ./sqlmi2.cer --use-k8s",
-    ex1="Ex 1 - Create a failover group custom resource fogCr1 "
+    ex1="Ex 1 - Create a failover group resource fogCr1 "
     "to create failover group by using shared name sharedName1 between sqlmi "
-    "instance sqlmi1 and partner sqlmi instance sqlmi2. It requires partner "
+    "instance sqlmi1 and partner SQL managed instance sqlmi2. It requires partner "
     "sqlmi primary mirror partnerPrimary:5022 and partner sqlmi mirror "
     "endpoint certificate file ./sqlmi2.cer.",
 )
@@ -363,12 +371,12 @@ helps[
           text: >
             {cmd}
 """.format(
-    short="Update a failover group custom resource",
-    long="Update a failover group custom resource to change the role of "
+    short="Update a failover group resource",
+    long="Update a failover group resource to change the role of "
     "distributed availability group ",
     cmd="az sql instance-failover-group-arc update --name fogCr1 "
     "--role secondary --use-k8s",
-    ex1="Ex 1 - Update a failover group custom resource fogCr1 "
+    ex1="Ex 1 - Update a failover group resource fogCr1 "
     "to secondary role from primary",
 )
 
@@ -384,10 +392,8 @@ helps[
           text: >
             az sql instance-failover-group-arc delete --name fogCr1 --use-k8s
 """.format(
-    short="Delete a failover group custom resource on a sqlmi instance.",
-    long="Delete a failover group custom resource on a sqlmi "
-    "instance to delete a distributed availability group. It requires a "
-    "custom resource name.",
+    short="Delete a failover group resource on a SQL managed instance.",
+    long="Delete a failover group resource on a SQL managed instance.",
     ex1="Ex 1 - delete failover group resources named fogCr1.",
 )
 
@@ -402,8 +408,7 @@ helps[
           text: >
             az sql instance-failover-group-arc show --name fogCr1 --use-k8s
 """.format(
-    short="show a distributed availability group custom resource.",
-    long="show a distributed availability group custom resource. "
-    "It requires a custom resource name",
+    short="show a failover group resource.",
+    long="show a failover group resource.",
     ex1="Ex 1 - show failover group resources named fogCr1.",
 )

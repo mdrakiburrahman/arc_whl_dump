@@ -2291,7 +2291,6 @@ class DataControllerClient(object):
 
     def update(
         self,
-        client,
         namespace=None,
         maintenance_start=None,
         maintenance_duration=None,

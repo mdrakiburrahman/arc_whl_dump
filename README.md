@@ -1,5 +1,5 @@
-# arcdata dump - `1.2.2`
-Dump of arcdata-1.2.2-py2.py3-none-any.whl to better understand how it works
+# arcdata dump - `1.4.0`
+Dump of arcdata-1.X.X-py2.py3-none-any.whl to better understand how it works
 
 All versions: https://azcliextensionsync.blob.core.windows.net/index1/index.json
 

@@ -197,34 +197,48 @@ class CustomResource(SerializationUtils):
             self._generation = gen
 
         class OwnerReference(SerializationUtils):
-            def __init__(self, apiVersion: str = None, kind : str = None, name : str = None, uid : str = None):
+            def __init__(
+                self,
+                apiVersion: str = None,
+                kind: str = None,
+                name: str = None,
+                uid: str = None,
+            ):
                 self._apiVersion = apiVersion
                 self._kind = kind
                 self._name = name
                 self._uid = uid
+
             @property
             def apiVersion(self) -> str:
                 return self._apiVersion
+
             @apiVersion.setter
             def apiVersion(self, av: str):
                 self._apiVersion = av
+
             @property
             def kind(self) -> str:
                 return self._kind
+
             @kind.setter
-            def kind(self, k:str):
+            def kind(self, k: str):
                 self._kind = k
+
             @property
             def name(self) -> str:
-                return self._name 
+                return self._name
+
             @name.setter
-            def name(self, n:str):
+            def name(self, n: str):
                 self._name = n
+
             @property
             def uid(self) -> str:
                 return self._uid
+
             @uid.setter
-            def uid(self, u:str):
+            def uid(self, u: str):
                 self._uid = u
 
             def _to_dict(self):
@@ -234,6 +248,7 @@ class CustomResource(SerializationUtils):
                     "name": getattr(self, "name", None),
                     "uid": getattr(self, "uid", None),
                 }
+
             def _hydrate(self, d: dict):
                 if "apiVersion" in d:
                     self.apiVersion = d["apiVersion"]
@@ -245,8 +260,9 @@ class CustomResource(SerializationUtils):
                     self.uid = d["uid"]
 
         @property
-        def ownerReferences(self) -> list :
+        def ownerReferences(self) -> list:
             return self._ownerReferences
+
         @ownerReferences.setter
         def ownerReferences(self, ownerR: list):
             self._ownerReferences = ownerR
@@ -270,7 +286,7 @@ class CustomResource(SerializationUtils):
                 "uid": getattr(self, "uid", None),
                 "labels": getattr(self, "labels", None),
                 "annotations": getattr(self, "annotations", None),
-                "ownerReferences" : v_ownerReferences,
+                "ownerReferences": v_ownerReferences,
             }
 
         def _hydrate(self, d: dict):
@@ -292,7 +308,7 @@ class CustomResource(SerializationUtils):
             if "annotations" in d:
                 self.annotations = d["annotations"]
             if "ownerReferences" in d and d["ownerReferences"] is not None:
-                self._ownerReferences = [];
+                self._ownerReferences = []
                 for s in d["ownerReferences"]:
                     curr = self.OwnerReference()
                     curr._hydrate(s)
@@ -374,7 +390,6 @@ class CustomResource(SerializationUtils):
             if "message" in d:
                 self.message = d["message"]
 
-
     class Status(SerializationUtils):
         """
         Contains status information about the resource i.e. what the current state of the resource is
@@ -391,7 +406,7 @@ class CustomResource(SerializationUtils):
                 self,
                 log_search_dashboard: str = None,
                 metrics_dashboard: str = None,
-                ) -> None:
+            ) -> None:
                 self.log_search_dashboard = log_search_dashboard
                 self.metrics_dashboard = metrics_dashboard
 
@@ -582,26 +597,13 @@ class CustomResource(SerializationUtils):
 
         def __init__(
             self,
-            dev: bool = False,
             storage: "Storage" = None,
             services: "Services" = None,
             docker: DockerSpec = None,
         ):
-            self.dev = dev
             self.storage = storage if storage else self.Storage()
             self.services = services if services else self.Services()
             self.docker = docker if docker else DockerSpec()
-
-        @property
-        def dev(self) -> bool:
-            """
-            True if this is a dev object, false otherwise. Not a k8s thing, for internal use
-            """
-            return self._dev
-
-        @dev.setter
-        def dev(self, d: bool):
-            self._dev = d
 
         class Services(SerializationUtils):
             """
@@ -837,8 +839,6 @@ class CustomResource(SerializationUtils):
             """
             @override
             """
-            if "dev" in d:
-                self.dev = d["dev"]
 
             if "services" in d:
                 self.services._hydrate(d["services"])
@@ -854,7 +854,6 @@ class CustomResource(SerializationUtils):
             @override
             """
             return {
-                "dev": self.dev,
                 "services": self.services._to_dict(),
                 "storage": self.storage._to_dict(),
                 "docker": self.docker._to_dict(),
@@ -1016,7 +1015,6 @@ class CustomResource(SerializationUtils):
 
         self._set_if_provided(self.metadata, "name", kwargs, "name")
         self._set_if_provided(self.metadata, "namespace", kwargs, "namespace")
-        self._set_if_provided(self.spec, "dev", kwargs, "dev")
         self._set_if_provided(
             self.spec.services.primary, "port", kwargs, "port"
         )
@@ -1031,3 +1029,8 @@ class CustomResource(SerializationUtils):
     def _set_if_provided(obj, key, args, args_key):
         if args_key in args and args[args_key] is not None:
             setattr(obj, key, args[args_key])
+
+    @staticmethod
+    def _get_if_provided(args, args_key):
+        if args_key in args and args[args_key] is not None:
+            return args[args_key]

@@ -1,5 +1,5 @@
 {
-  "apiVersion": "sql.arcdata.microsoft.com/v4",
+  "apiVersion": "sql.arcdata.microsoft.com/v5",
   "kind": "SqlManagedInstance",
   "metadata": {
     "name": "sql"

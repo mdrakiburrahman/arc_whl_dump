@@ -283,3 +283,35 @@ class Env(object):
         return namedtuple("LogMetricsCredentials", " ".join(list(args.keys())))(
             **args
         )
+
+    @staticmethod
+    def get_active_directory_domain_account_credentials():
+        default_vars = [
+            const.DOMAIN_SERVICE_ACCOUNT_USERNAME,
+            const.DOMAIN_SERVICE_ACCOUNT_PASSWORD,
+        ]
+        if not Env.env_vars_are_set(default_vars):
+            if sys.stdin.isatty():
+                Env._set_credential_vars(
+                    default_vars, "Active Directory domain service account"
+                )
+            else:
+                raise ValueError(
+                    "Missing environment variables. Please set {0} "
+                    "and {1}".format(
+                        const.DOMAIN_SERVICE_ACCOUNT_USERNAME,
+                        const.DOMAIN_SERVICE_ACCOUNT_PASSWORD,
+                    )
+                )
+
+        os.environ[default_vars[0]] = os.getenv(default_vars[0]).strip()
+        os.environ[default_vars[1]] = os.getenv(default_vars[1]).strip()
+
+        args = {
+            "username": os.getenv(default_vars[0]),
+            "password": os.getenv(default_vars[1]),
+        }
+
+        return namedtuple(
+            "ADDomainAccountCredentials", " ".join(list(args.keys()))
+        )(**args)
