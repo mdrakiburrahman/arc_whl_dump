@@ -7,14 +7,17 @@ Dump of Arc CLI code to better understand how it works
 ```powershell
 az extension list-versions -n connectedk8s
 az extension list-versions -n arcdata
+az extension list-versions -n k8s-extension
 ```
 2. Download wheel from:
 ```text
-https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.2.8-py2.py3-none-any.whl
+https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.X.X-py2.py3-none-any.whl
 https://azurearcdatacli.blob.core.windows.net/cli-extensions/arcdata-1.X.X-py2.py3-none-any.whl
+https://azcliprod.blob.core.windows.net/cli-extensions/k8s_extension-1.X.X-py3-none-any.whl
 ```
 3 Unpacked `whl` file via 7-zip
 
 # Versions
 ## connectedk8s - `1.2.8`
 ## arcdata - `1.4.0`
+## k8s-extension `1.2.2`
