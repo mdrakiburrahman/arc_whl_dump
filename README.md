@@ -14,6 +14,7 @@ az extension list-versions -n k8s-extension
 https://azcliprod.blob.core.windows.net/cli-extensions/connectedk8s-1.X.X-py2.py3-none-any.whl
 https://azurearcdatacli.blob.core.windows.net/cli-extensions/arcdata-1.X.X-py2.py3-none-any.whl
 https://azcliprod.blob.core.windows.net/cli-extensions/k8s_extension-1.X.X-py3-none-any.whl
+https://arcplatformcliextprod.blob.core.windows.net/customlocation/customlocation-0.1.3-py2.py3-none-any.whl
 ```
 3 Unpacked `whl` file via 7-zip
 
@@ -21,3 +22,4 @@ https://azcliprod.blob.core.windows.net/cli-extensions/k8s_extension-1.X.X-py3-n
 ## connectedk8s - `1.2.8`
 ## arcdata - `1.4.0`
 ## k8s-extension `1.2.2`
+## customlocation `0.1.3`
